@@ -8,6 +8,6 @@ def legal_moves(hand: list[Domino], board_ends: Optional[tuple[int, int]]) -> li
     left_end, right_end = board_ends
     legal = []
     for tile in hand:
-        if tile.left == left_end or tile.right == left_end or tile.left == right_end or tile.right == right_end:
+        if tile.a == left_end or tile.b == left_end or tile.a == right_end or tile.b == right_end:
             legal.append(tile)
     return legal

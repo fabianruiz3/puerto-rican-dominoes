@@ -7,8 +7,8 @@ class GameMode(Enum):
 
 @dataclass(frozen=True)
 class Domino:
-    left: int
-    right: int
+    a: int
+    b: int
 
     def is_double(self) -> bool:
         return self.a == self.b
@@ -20,7 +20,7 @@ class Domino:
         return self.a + self.b
 
     def __str__(self) -> str:
-        return f"[{self.left}|{self.right}]"
+        return f"[{self.a}|{self.b}]"
 
 @dataclass
 class Move:
@@ -31,16 +31,17 @@ class Move:
 
 @dataclass
 class MatchConfig:
-    target_score: int
+    target_points: int
     mode: GameMode
     capicu_bonus: int = 100
     chuchazo_bonus: int = 100
 
 @dataclass
 class PlayerState:
-    idx: int
+    index: int
     hand: list[Domino] = field(default_factory=list)
     score: int = 0
+    hand_score: int = 0
 
     def hand_pips(self) -> int:
         return sum(tile.pips() for tile in self.hand)

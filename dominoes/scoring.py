@@ -78,4 +78,4 @@ def is_capicu(winning_tile: Domino, ends_before: tuple[int, int]) -> bool:
     A capicu occurs when the winning tile can play on both board ends,
     meaning the player could have won from either side.
     """ 
-    return (winning_tile.left in ends_before and winning_tile.right in ends_before)
+    return (winning_tile.a in ends_before and winning_tile.b in ends_before)
