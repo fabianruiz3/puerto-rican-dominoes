@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Optional
 import random
 from .types import Domino, MatchConfig, PlayerState, GameMode
 from .tiles import generate_double_six_set
@@ -10,21 +10,22 @@ from . import bots
 
 @dataclass
 class HandState:
-    layout: List[Domino] = field(default_factory=list)
-    ends: Optional[Tuple[int, int]] = None
+    layout: list[Domino] = field(default_factory=list)
+    ends: Optional[tuple[int, int]] = None
     passes_in_a_row: int = 0
     current_player: int = 0
     winning_tile: Optional[Domino] = None
-    ends_before_last_move: Optional[Tuple[int, int]] = None
+    ends_before_last_move: Optional[tuple[int, int]] = None
     last_move_blocked: bool = False
 
 
 @dataclass
 class MatchState:
     config: MatchConfig
-    players: List[PlayerState]
-    bots: List[Optional[bots.BotBase]]
+    players: list[PlayerState]
+    bots: list[Optional[bots.BotBase]]
     hand_state: Optional[HandState] = None
+    last_hand_result: Optional[dict] = None
 
     @classmethod
     def new_with_default_bots(cls, config: MatchConfig) -> "MatchState":
@@ -42,6 +43,7 @@ class MatchState:
                 p.hand.append(tiles.pop())
         start = random.randint(0, 3)
         self.hand_state = HandState(current_player=start)
+        self.last_hand_result = None
 
     def play_tile(self, player_index: int, tile: Domino, end: str):
         hs = self.hand_state
@@ -107,6 +109,11 @@ class MatchState:
         assert hs is not None
         blocked = self.is_blocked()
         hands_pips = [p.hand_pips() for p in self.players]
+        remaining = [
+            {"index": p.index, "hand": [{"a": t.a, "b": t.b} for t in p.hand], "pips": p.hand_pips()}
+            for p in self.players
+        ]
+
         if blocked:
             winner = min(range(4), key=lambda i: hands_pips[i])
         else:
@@ -134,15 +141,22 @@ class MatchState:
         for i, p in enumerate(self.players):
             p.score += deltas[i]
         hs.last_move_blocked = blocked
+        self.last_hand_result = {
+            "winner": winner,
+            "blocked": blocked,
+            "remaining": remaining,
+            "points_earned": deltas,
+        }
 
     def is_match_over(self) -> bool:
         if self.config.mode == GameMode.FFA:
             return any(p.score >= self.config.target_points for p in self.players)
-        team0_score = self.players[0].score + self.players[2].score
-        team1_score = self.players[1].score + self.players[3].score
+        # Both teammates carry the same score, so just use one player per team
+        team0_score = self.players[0].score
+        team1_score = self.players[1].score
         return team0_score >= self.config.target_points or team1_score >= self.config.target_points
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict:
         hs = self.hand_state
         layout = hs.layout if hs is not None else []
         ends = hs.ends if hs is not None else None
@@ -171,4 +185,6 @@ class MatchState:
                 "passes_in_a_row": passes,
                 "last_move_blocked": last_blocked,
             },
+            "last_hand_result": self.last_hand_result,
+            "match_over": self.is_match_over(),
         }

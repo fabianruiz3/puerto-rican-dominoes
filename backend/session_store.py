@@ -1,8 +1,7 @@
-from typing import Dict
 from uuid import uuid4
 from dominoes.game import MatchState
 
-_store: Dict[str, MatchState] = {}
+_store: dict[str, MatchState] = {}
 
 
 def create_match(match: MatchState) -> str:

@@ -1,8 +1,8 @@
-from typing import List, Optional, Tuple
+from typing import Optional
 from .types import Domino
 
 
-def legal_moves_for_hand(hand: List[Domino], ends: Optional[Tuple[int, int]]) -> List[Tuple[Domino, str]]:
+def legal_moves_for_hand(hand: list[Domino], ends: Optional[tuple[int, int]]) -> list[tuple[Domino, str]]:
     if ends is None:
         return [(tile, "start") for tile in hand]
     left, right = ends

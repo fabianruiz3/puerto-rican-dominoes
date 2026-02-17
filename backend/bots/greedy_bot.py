@@ -1,19 +1,14 @@
-from typing import Optional
-from .types import Domino
-from .rules import legal_moves_for_hand
+"""
+Greedy Bot strategy that prioritizes high-pip tiles.
 
-
-class BotBase:
-    def choose_move(
-        self,
-        hand: list[Domino],
-        ends,
-    ) -> Optional[tuple[Domino, str]]:
-        raise NotImplementedError
+Slightly prefers non-double tiles. Use as a baseline bot.
+"""
+from dominoes.bots import BotBase
+from dominoes.rules import legal_moves_for_hand
 
 
 class GreedyBot(BotBase):
-    def choose_move(self, hand: list[Domino], ends):
+    def choose_move(self, hand, ends):
         legal = legal_moves_for_hand(hand, ends)
         if not legal:
             return None

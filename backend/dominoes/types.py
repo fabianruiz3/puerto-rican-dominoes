@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List
 
 
 class GameMode(Enum):
@@ -34,7 +33,7 @@ class MatchConfig:
 @dataclass
 class PlayerState:
     index: int
-    hand: List[Domino] = field(default_factory=list)
+    hand: list[Domino] = field(default_factory=list)
     score: int = 0
 
     def hand_pips(self) -> int:

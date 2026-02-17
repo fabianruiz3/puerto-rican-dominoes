@@ -1,4 +1,3 @@
-from typing import Dict, List
 from .types import Domino, MatchConfig
 
 
@@ -11,13 +10,13 @@ def is_capicu(ends_before, ends_after) -> bool:
 
 def compute_hand_scores_ffa(
     config: MatchConfig,
-    hands_pips: List[int],
+    hands_pips: list[int],
     winner_index: int,
     winning_tile: Domino,
     blocked: bool,
     ends_before,
     ends_after,
-) -> Dict[int, int]:
+) -> dict[int, int]:
     scores = {i: 0 for i in range(4)}
     if blocked:
         total_pips = sum(hands_pips)
@@ -37,13 +36,13 @@ def compute_hand_scores_ffa(
 
 def compute_hand_scores_teams(
     config: MatchConfig,
-    hands_pips: List[int],
+    hands_pips: list[int],
     winner_index: int,
     winning_tile: Domino,
     blocked: bool,
     ends_before,
     ends_after,
-) -> Dict[int, int]:
+) -> dict[int, int]:
     scores = {i: 0 for i in range(4)}
     team0 = [0, 2]
     team1 = [1, 3]
