@@ -1,22 +1,12 @@
 from .types import Domino, MatchConfig
 
-
 def is_capicu(ends_before, ends_after) -> bool:
     if ends_before is None or ends_after is None:
         return False
     left_after, right_after = ends_after
     return left_after == right_after
 
-
-def compute_hand_scores_ffa(
-    config: MatchConfig,
-    hands_pips: list[int],
-    winner_index: int,
-    winning_tile: Domino,
-    blocked: bool,
-    ends_before,
-    ends_after,
-) -> dict[int, int]:
+def compute_hand_scores_ffa(config: MatchConfig, hands_pips: list[int], winner_index: int, winning_tile: Domino, blocked: bool, ends_before, ends_after) -> dict[int, int]:
     scores = {i: 0 for i in range(4)}
     if blocked:
         total_pips = sum(hands_pips)
@@ -24,7 +14,7 @@ def compute_hand_scores_ffa(
         base_points = total_pips - hands_pips[winner]
         scores[winner] += base_points
         return scores
-    base_points = sum(hands_pips[i] for i in range(4) if i != winner_index)
+    base_points = sum((hands_pips[i] for i in range(4) if i != winner_index))
     bonus = 0
     if is_capicu(ends_before, ends_after):
         bonus += config.capicu_bonus
@@ -33,16 +23,7 @@ def compute_hand_scores_ffa(
     scores[winner_index] += base_points + bonus
     return scores
 
-
-def compute_hand_scores_teams(
-    config: MatchConfig,
-    hands_pips: list[int],
-    winner_index: int,
-    winning_tile: Domino,
-    blocked: bool,
-    ends_before,
-    ends_after,
-) -> dict[int, int]:
+def compute_hand_scores_teams(config: MatchConfig, hands_pips: list[int], winner_index: int, winning_tile: Domino, blocked: bool, ends_before, ends_after) -> dict[int, int]:
     scores = {i: 0 for i in range(4)}
     team0 = [0, 2]
     team1 = [1, 3]
