@@ -12,7 +12,6 @@ import pytest
 
 from cfr.engine import (
     LEFT,
-    RIGHT,
     START,
     TILES,
     HandSim,

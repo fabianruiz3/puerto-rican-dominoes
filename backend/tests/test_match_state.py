@@ -9,7 +9,7 @@ import pytest
 
 from dominoes.game import MatchState
 from dominoes.rules import OPENING_TILE, team_for_player
-from dominoes.types import Domino, GameMode, MatchConfig
+from dominoes.types import GameMode, MatchConfig
 
 
 def new_match(mode=GameMode.TEAMS, seed=1):
