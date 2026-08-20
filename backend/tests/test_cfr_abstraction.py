@@ -216,3 +216,26 @@ def test_keys_are_identical_in_a_fresh_interpreter_with_a_different_hash_seed():
         assert proc.returncode == 0, proc.stderr
         outs.add(proc.stdout.strip())
     assert len(outs) == 1, f"keys differ across hash seeds: {outs}"
+
+
+def test_the_vectorised_slot_key_matches_the_scalar_one():
+    """The trainer derives every checkpoint entry's slot key with the array
+    version; if it drifted from the scalar one used during traversal, a round
+    would read regret from the wrong slots and quietly corrupt the run."""
+    import numpy as np
+
+    from cfr.abstraction import slot_keys
+
+    rng = random.Random(0)
+    info = np.array(
+        [rng.getrandbits(64) for _ in range(2000)] + [0, 2**64 - 1, 1],
+        dtype=np.uint64,
+    )
+    action = np.array(
+        [rng.randrange(ACTION_COUNT) for _ in range(2000)] + [0, 63, 41],
+        dtype=np.uint8,
+    )
+    expected = np.array(
+        [slot_key(int(i), int(a)) for i, a in zip(info, action)], dtype=np.uint64
+    )
+    assert np.array_equal(slot_keys(info, action), expected)

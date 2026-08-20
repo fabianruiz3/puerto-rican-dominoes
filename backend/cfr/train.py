@@ -24,7 +24,7 @@ from multiprocessing import get_context
 
 import numpy as np
 
-from .abstraction import LEVELS, TINY, actions_for, key_for, slot_key
+from .abstraction import LEVELS, TINY, actions_for, key_for, slot_key, slot_keys
 from .engine import new_hand
 from .mccfr import BaseTable, GameSpec, RegretTable, traverse
 from .policy import from_arrays, merge_shards, save_shard
@@ -170,11 +170,7 @@ def base_from_checkpoint(checkpoint) -> tuple:
     if checkpoint is None:
         return None, None
     info, action, regret, _ = checkpoint
-    slots = np.fromiter(
-        (slot_key(int(i), int(a)) for i, a in zip(info, action)),
-        dtype=np.uint64,
-        count=len(info),
-    )
+    slots = slot_keys(info, action)
     order = np.argsort(slots)
     return np.ascontiguousarray(slots[order]), np.ascontiguousarray(regret[order])
 
