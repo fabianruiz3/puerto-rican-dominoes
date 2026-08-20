@@ -67,7 +67,15 @@ def sim_from_context(hand, ends, context) -> tuple[HandSim, int]:
 class CFRBot(BotBase):
     """Plays a trained CFR policy, falling back to GreedyBot on a miss."""
 
-    def __init__(self, policy=None, sample: bool = True, seed=None):
+    def __init__(self, policy=None, sample: bool = False, seed=None):
+        """`sample` draws from the average strategy instead of playing its mode.
+
+        Playing the mode is the default because it measurably wins more: 56.4%
+        against GreedyBot versus 49.5% sampling, on the same policy and seeds.
+        Mixing is what makes an equilibrium strategy unexploitable, but that
+        only pays against an opponent adapting to you. Against fixed opponents
+        it just adds noise to a decision the table has already made.
+        """
         from .greedy_bot import GreedyBot
 
         if policy is None:

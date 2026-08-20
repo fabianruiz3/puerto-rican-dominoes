@@ -67,7 +67,11 @@ def main(argv=None) -> int:
     p.add_argument("--matches", type=int, default=2000)
     p.add_argument("--target", type=int, default=200)
     p.add_argument("--seed", type=int, default=11)
-    p.add_argument("--argmax", action="store_true", help="play the mode, not a sample")
+    p.add_argument(
+        "--sample",
+        action="store_true",
+        help="draw from the average strategy instead of playing its mode",
+    )
     args = p.parse_args(argv)
 
     policy = Policy.load(args.policy)
@@ -82,7 +86,7 @@ def main(argv=None) -> int:
 
     results = {}
     for name, opponent in (("random", RandomBot()), ("greedy", GreedyBot())):
-        bot = CFRBot(policy, sample=not args.argmax, seed=args.seed)
+        bot = CFRBot(policy, sample=args.sample, seed=args.seed)
         r = head_to_head(bot, opponent, args.matches, args.target, args.seed)
         r["hit_rate"] = bot.hit_rate
         r["hits"] = bot.hits
