@@ -147,3 +147,30 @@ def test_passing_with_a_legal_move_available_is_refused(client):
 
 def test_an_unknown_match_id_is_a_404(client):
     assert client.get("/api/match/does-not-exist").status_code == 404
+
+
+def test_a_match_starts_against_cfr_once_a_policy_is_installed(client):
+    if not cfr_available():
+        pytest.skip("no trained policy installed")
+    r = client.post("/api/match", json={"mode": "teams", "opponent": "cfr"})
+    assert r.status_code == 200
+    assert r.json()["state"]["hand_number"] == 1
+
+
+def test_the_installed_policy_loads_and_plays_the_mode(client):
+    if not cfr_available():
+        pytest.skip("no trained policy installed")
+    bot = make("cfr")
+    assert bot.policy.n_infosets > 1000
+    assert bot.sample is False
+
+
+def test_the_three_cfr_seats_share_one_loaded_policy():
+    if not cfr_available():
+        pytest.skip("no trained policy installed")
+    seats = [s for s in seat_bots("cfr") if s is not None]
+    assert len(seats) == 3
+    assert all(s.policy is seats[0].policy for s in seats)
+    # Shared table, independent bots.
+    assert len({id(s) for s in seats}) == 3
+    assert all(s.hits == 0 for s in seats)
