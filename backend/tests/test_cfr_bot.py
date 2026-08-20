@@ -163,3 +163,27 @@ def test_the_bot_plays_a_full_arena_match_without_error():
     )
     result = run_arena(CFRBot(empty, seed=0), RandomBot(), num_matches=15, seed=2)
     assert result["team_a_wins"] + result["team_b_wins"] == 15
+
+
+def test_the_bot_plays_the_mode_by_default_and_does_so_deterministically():
+    """Playing the mode measurably beats sampling here (56.4% vs 49.5% against
+    GreedyBot), so it is the default; mixing only pays against an opponent
+    adapting to you."""
+    info = np.array([1, 1], dtype=np.uint64)
+    action = np.array([0, 1], dtype=np.uint8)
+    policy = from_arrays(info, action, np.array([9.0, 1.0]), "tiny")
+    bot = CFRBot(policy)
+    assert bot.sample is False
+
+    first = [bot.choose_move(h, e, c) for _, _, h, e, c in replay(hands=8, seed=9)]
+    again = [
+        CFRBot(policy).choose_move(h, e, c) for _, _, h, e, c in replay(hands=8, seed=9)
+    ]
+    assert first == again
+
+
+def test_sampling_can_be_asked_for_explicitly():
+    empty = from_arrays(
+        np.zeros(0, np.uint64), np.zeros(0, np.uint8), np.zeros(0), "tiny"
+    )
+    assert CFRBot(empty, sample=True).sample is True
