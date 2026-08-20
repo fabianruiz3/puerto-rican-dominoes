@@ -49,7 +49,18 @@ export async function runArena(botAFile, botBFile, numMatches = 1000, targetPoin
     const err = await res.json().catch(() => ({ detail: "Arena failed" }));
     throw new Error(err.detail || "Arena failed");
   }
-  return res.json();
+  const d = await res.json();
+  // Normalize backend field names → frontend expectations
+  return {
+    ...d,
+    team_a_win_pct: Math.round((d.team_a_win_rate ?? 0) * 100),
+    team_b_win_pct: Math.round((d.team_b_win_rate ?? 0) * 100),
+    avg_points_a: (d.avg_points_team_a ?? 0).toFixed(2),
+    avg_points_b: (d.avg_points_team_b ?? 0).toFixed(2),
+    blocked_pct: Math.round((d.blocked_hand_rate ?? 0) * 100),
+    elapsed_seconds: (d.elapsed_seconds ?? 0).toFixed(2),
+    avg_hands_per_match: (d.avg_hands_per_match ?? 0).toFixed(3),
+  };
 }
 
 export async function getArenaResults(arenaId) {

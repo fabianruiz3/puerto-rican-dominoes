@@ -226,7 +226,7 @@ function ArenaMode({ onBack }) {
       <button className="new-btn" onClick={onBack} style={{ marginBottom: 16 }}>← Back to Menu</button>
 
       {!replayMatch && !summary && (
-        <div className="panel" style={{ maxWidth: 600, margin: "0 auto" }}>
+        <div className="panel" style={{ maxWidth: 900, margin: "0 auto" }}>
             <div className="panel-title">Bot Arena</div>
           <p style={{ color: C.muted, fontSize: ".85rem", marginBottom: 16 }}>
             Upload two Python bot files. Each bot plays as a team (players 0+2 vs 1+3) for {numMatches} matches.
@@ -266,19 +266,24 @@ function ArenaMode({ onBack }) {
           {error && <div style={{ color: C.red, marginTop: 12, fontSize: ".85rem" }}>Error: {error}</div>}
 
           <div style={{ marginTop: 20, padding: "14px 0", borderTop: `1px solid ${C.panelBorder}` }}>
-            <div style={{ fontSize: ".78rem", color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Bot Template</div>
-            <pre style={{ background: "rgba(0,0,0,.4)", padding: 14, borderRadius: 10, fontSize: ".78rem", color: C.green, overflowX: "auto", lineHeight: 1.5 }}>{`from dominoes.bots import BotBase
+            <div style={{ fontSize: ".78rem", color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Bot API</div>
+            <pre style={{ background: "rgba(0,0,0,.4)", padding: 14, borderRadius: 10, fontSize: ".78rem", color: C.green, overflowX: "auto", lineHeight: 1.6 }}>{`from dominoes.bots import BotBase
 from dominoes.rules import legal_moves_for_hand
 
 class MyBot(BotBase):
-    def choose_move(self, hand, ends):
+    def choose_move(self, hand, ends, context=None):
         legal = legal_moves_for_hand(hand, ends)
         if not legal:
             return None
-        # hand: List[Domino] — each has .a, .b, .pips(), .is_double()
-        # ends: (left_val, right_val) or None
+        # hand: List[Domino]          — each has .a, .b, .pips(), .is_double()
+        # ends: (left_val, right_val) — or None if board is empty
         # legal: List[(Domino, "left"|"right"|"start")]
-        # Return: (tile, end) from legal moves
+        # context (for CFR/advanced bots):
+        #   context.board          — List[Domino] tiles on the board
+        #   context.player_id      — which seat this bot occupies (0-3)
+        #   context.hand_counts    — List[int] tiles remaining per player
+        #   context.pass_counts    — List[int] consecutive passes per player
+        #   context.move_history   — List[Move] full hand history
         return legal[0]  # your logic here`}</pre>
           </div>
         </div>
@@ -286,57 +291,51 @@ class MyBot(BotBase):
 
       {/* Results dashboard */}
       {summary && !replayMatch && (
-        <div>
-          <div className="panel" style={{ maxWidth: 800, margin: "0 auto 16px" }}>
-            <div className="panel-title">Arena Results</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-              <div style={{ background: "rgba(74,222,128,.1)", borderRadius: 12, padding: 16, textAlign: "center", border: "1px solid rgba(74,222,128,.2)" }}>
-                <div style={{ fontSize: ".75rem", color: C.muted, textTransform: "uppercase", marginBottom: 4 }}>{summary.bot_a_name}</div>
-                <div style={{ fontSize: "2.2rem", fontWeight: 700, color: C.green }}>{summary.team_a_wins}</div>
-                <div style={{ fontSize: ".85rem", color: C.muted }}>wins ({summary.team_a_win_pct}%)</div>
-              </div>
-              <div style={{ background: "rgba(96,165,250,.1)", borderRadius: 12, padding: 16, textAlign: "center", border: "1px solid rgba(96,165,250,.2)" }}>
-                <div style={{ fontSize: ".75rem", color: C.muted, textTransform: "uppercase", marginBottom: 4 }}>{summary.bot_b_name}</div>
-                <div style={{ fontSize: "2.2rem", fontWeight: 700, color: C.blueAccent }}>{summary.team_b_wins}</div>
-                <div style={{ fontSize: ".85rem", color: C.muted }}>wins ({summary.team_b_win_pct}%)</div>
-              </div>
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          {/* Bot score cards — full width row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ background: "rgba(74,222,128,.08)", borderRadius: 16, padding: "24px 20px", textAlign: "center", border: "2px solid rgba(74,222,128,.2)" }}>
+              <div style={{ fontSize: ".72rem", color: C.muted, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8 }}>{summary.bot_a_name}</div>
+              <div style={{ fontSize: "3.5rem", fontWeight: 800, color: C.green, lineHeight: 1 }}>{summary.team_a_wins}</div>
+              <div style={{ fontSize: ".9rem", color: C.muted, marginTop: 6 }}>wins ({summary.team_a_win_pct}%)</div>
             </div>
-
-            {/* Stats grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
-              {[
-                ["Matches", summary.num_matches],
-                ["Time", `${summary.elapsed_seconds}s`],
-                ["Avg Hands/Match", summary.avg_hands_per_match],
-                ["Avg Pts A", summary.avg_points_a],
-                ["Avg Pts B", summary.avg_points_b],
-                ["Blocked %", `${summary.blocked_pct}%`],
-              ].map(([k, v]) => (
-                <div key={k} style={{ background: "rgba(255,255,255,.03)", borderRadius: 8, padding: "10px 12px" }}>
-                  <div style={{ fontSize: ".7rem", color: C.muted, textTransform: "uppercase" }}>{k}</div>
-                  <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>{v}</div>
-                </div>
-              ))}
+            <div style={{ background: "rgba(96,165,250,.08)", borderRadius: 16, padding: "24px 20px", textAlign: "center", border: "2px solid rgba(96,165,250,.2)" }}>
+              <div style={{ fontSize: ".72rem", color: C.muted, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8 }}>{summary.bot_b_name}</div>
+              <div style={{ fontSize: "3.5rem", fontWeight: 800, color: C.blueAccent, lineHeight: 1 }}>{summary.team_b_wins}</div>
+              <div style={{ fontSize: ".9rem", color: C.muted, marginTop: 6 }}>wins ({summary.team_b_win_pct}%)</div>
             </div>
+          </div>
 
-            {/* Win pct bar */}
-            <div style={{ height: 28, borderRadius: 8, overflow: "hidden", display: "flex", marginBottom: 16 }}>
-              <div style={{ width: `${summary.team_a_win_pct}%`, background: "linear-gradient(90deg, #22c55e, #4ade80)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: ".75rem", fontWeight: 600, color: "#000", minWidth: 40 }}>
-                {summary.team_a_win_pct}%
+          {/* Stats grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10, marginBottom: 16 }}>
+            {[
+              ["Matches", summary.num_matches],
+              ["Time", `${summary.elapsed_seconds}s`],
+              ["Avg Hands/Match", summary.avg_hands_per_match],
+              ["Avg Pts A", summary.avg_points_a],
+              ["Avg Pts B", summary.avg_points_b],
+              ["Blocked %", `${summary.blocked_pct}%`],
+            ].map(([k, v]) => (
+              <div key={k} style={{ background: "rgba(255,255,255,.04)", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ fontSize: ".65rem", color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{k}</div>
+                <div style={{ fontSize: "1.15rem", fontWeight: 700 }}>{v}</div>
               </div>
-              <div style={{ flex: 1, background: "linear-gradient(90deg, #3b82f6, #60a5fa)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: ".75rem", fontWeight: 600, color: "#000", minWidth: 40 }}>
-                {summary.team_b_win_pct}%
-              </div>
+            ))}
+          </div>
+
+          {/* Win pct bar */}
+          <div style={{ height: 32, borderRadius: 10, overflow: "hidden", display: "flex", marginBottom: 16 }}>
+            <div style={{ width: `${summary.team_a_win_pct}%`, background: "linear-gradient(90deg, #16a34a, #4ade80)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: ".8rem", fontWeight: 700, color: "#000", minWidth: 40, transition: "width .8s ease" }}>
+              {summary.team_a_win_pct}%
             </div>
-
-            <button className="end-btn" onClick={() => { setSummary(null); setFullResults(null); }} style={{ width: "100%" }}>
-              Run New Arena
-            </button>
+            <div style={{ flex: 1, background: "linear-gradient(90deg, #2563eb, #60a5fa)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: ".8rem", fontWeight: 700, color: "#000", minWidth: 40 }}>
+              {summary.team_b_win_pct}%
+            </div>
           </div>
 
           {/* Match list for replay */}
           {fullResults && (
-            <div className="panel" style={{ maxWidth: 800, margin: "0 auto" }}>
+            <div className="panel" style={{ marginBottom: 16 }}>
               <div className="panel-title">Match Replays ({fullResults.total_matches_stored} available)</div>
               <div style={{ maxHeight: 400, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
                 {fullResults.matches.map((m, i) => (
@@ -350,10 +349,10 @@ class MyBot(BotBase):
                     onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,.03)"}>
                     <span style={{ fontSize: ".85rem" }}>Match #{i + 1}</span>
                     <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                      <span style={{ fontSize: ".8rem", color: C.muted }}>{m.num_hands} hands</span>
-                      <span style={{ fontSize: ".8rem", color: C.green }}>{m.final_scores[0]}</span>
+                      <span style={{ fontSize: ".8rem", color: C.muted }}>{m.num_hands ?? m.hands?.length ?? "?"} hands</span>
+                      <span style={{ fontSize: ".8rem", color: C.green }}>{(m.final_scores[0] ?? 0) + (m.final_scores[2] ?? 0)}</span>
                       <span style={{ fontSize: ".7rem", color: C.muted }}>vs</span>
-                      <span style={{ fontSize: ".8rem", color: C.blueAccent }}>{m.final_scores[1]}</span>
+                      <span style={{ fontSize: ".8rem", color: C.blueAccent }}>{(m.final_scores[1] ?? 0) + (m.final_scores[3] ?? 0)}</span>
                       <span style={{
                         fontSize: ".7rem", fontWeight: 600, padding: "2px 8px", borderRadius: 4,
                         background: m.winner_team === 0 ? "rgba(74,222,128,.15)" : "rgba(96,165,250,.15)",
@@ -365,6 +364,10 @@ class MyBot(BotBase):
               </div>
             </div>
           )}
+
+          <button className="end-btn" onClick={() => { setSummary(null); setFullResults(null); }} style={{ width: "100%" }}>
+            Run New Arena
+          </button>
         </div>
       )}
 
