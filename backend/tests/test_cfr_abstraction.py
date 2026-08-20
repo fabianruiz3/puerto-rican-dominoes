@@ -19,14 +19,12 @@ from cfr.abstraction import (
     STANDARD,
     action_id,
     canonical_moves,
-    hand_profile,
     infoset_key,
     legal_actions,
     slot_key,
 )
 from cfr.engine import (
     LEFT,
-    RIGHT,
     TILE_ID,
     TILE_MASK,
     HandSim,

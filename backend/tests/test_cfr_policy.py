@@ -117,9 +117,9 @@ def test_a_policy_survives_a_save_and_load_with_high_bit_keys():
 def test_a_full_training_round_trip_keeps_every_key_it_trained_on():
     """The end-to-end guard: train, merge, export, then look up what was
     trained. This is the check the truncation bug walked straight past."""
-    from cfr.abstraction import actions_for, canonical_moves, key_for, slot_key
+    from cfr.abstraction import actions_for, key_for, slot_key
     from cfr.mccfr import GameSpec, RegretTable, traverse
-    from cfr.train import accumulate, run_round, sample_root
+    from cfr.train import accumulate, sample_root
 
     class Args:
         pass
