@@ -51,6 +51,34 @@ def call_bot(bot: "BotBase", hand, ends, context=None):
     return bot.choose_move(hand, ends)
 
 
+def coerce_move(result, legal):
+    """Turn whatever a bot returned into something safe to play.
+
+    Uploaded bots return whatever they return. Returns (move, complaint):
+    `move` is a legal (tile, end) or None to pass, and `complaint` describes
+    what was wrong so the caller can report it rather than silently playing
+    something else. A bot that names an illegal move forfeits the choice --
+    it gets the first legal one -- instead of corrupting the board.
+    """
+    if result is None:
+        if not legal:
+            return None, None
+        # A pass is only legal with nothing to play. Callers ask a bot for a
+        # move only when there is one, so a None here would otherwise let an
+        # uploaded bot manufacture a tranque by refusing to play.
+        return legal[0], "passed with legal moves available"
+    try:
+        move = tuple(result)
+    except TypeError:
+        move = None
+    if move is None or len(move) != 2:
+        kind = type(result).__name__
+        return (legal[0] if legal else None), f"returned {kind}, expected (tile, end)"
+    if move not in legal:
+        return (legal[0] if legal else None), f"returned an illegal move {move}"
+    return move, None
+
+
 class GreedyBot(BotBase):
     def choose_move(self, hand: list[Domino], ends, context: Optional[dict] = None):
         legal = legal_moves_for_hand(hand, ends)

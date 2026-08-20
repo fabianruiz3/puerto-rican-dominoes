@@ -60,6 +60,8 @@ export async function runArena(botAFile, botBFile, numMatches = 1000, targetPoin
     blocked_pct: Math.round((d.blocked_hand_rate ?? 0) * 100),
     elapsed_seconds: (d.elapsed_seconds ?? 0).toFixed(2),
     avg_hands_per_match: (d.avg_hands_per_match ?? 0).toFixed(3),
+    bot_a_bad_returns: d.bot_a_bad_returns ?? 0,
+    bot_b_bad_returns: d.bot_b_bad_returns ?? 0,
   };
 }
 

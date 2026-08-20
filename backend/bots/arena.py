@@ -12,7 +12,7 @@ from dominoes.rules import (
     next_starter,
 )
 from dominoes.scoring import compute_hand_scores_teams
-from dominoes.bots import BotBase, call_bot
+from dominoes.bots import BotBase, call_bot, coerce_move
 
 MAX_HANDS_PER_MATCH = 100
 
@@ -37,6 +37,10 @@ class HandRecord:
     final_ends: Optional[tuple[int, int]] = None
     blocker: Optional[int] = None
     next_starter: Optional[int] = None
+    # Seats whose bot returned something that was not a legal move, and how
+    # often. Surfaced so a bot that never actually runs is visible rather than
+    # quietly scoring as if it had.
+    bad_returns: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -117,20 +121,19 @@ def run_single_hand(
             move_history=move_history,
             forced_tile=forced if ends is None else None,
         )
-        result = call_bot(bots[cp], hand, ends, context)
-        if result is None or tuple(result) not in legal:
-            # A bot that passes on a playable hand, or names an illegal
-            # placement, does not get to corrupt the board -- take its first
-            # legal move instead so the match stays valid.
-            if result is None:
-                passes += 1
-                rec.moves.append(MoveRecord(cp, -1, -1, "pass"))
-                move_history.append(
-                    {"player": cp, "tile": None, "end": "pass", "ends": ends}
-                )
-                cp = (cp + 1) % 4
-                continue
-            result = legal[0]
+        result, complaint = coerce_move(call_bot(bots[cp], hand, ends, context), legal)
+        if complaint is not None and forced is None:
+            # The forced opening lead is the harness's constraint, not the
+            # bot's mistake, so overruling it there is not held against them.
+            rec.bad_returns[cp] = rec.bad_returns.get(cp, 0) + 1
+        if result is None:
+            passes += 1
+            rec.moves.append(MoveRecord(cp, -1, -1, "pass"))
+            move_history.append(
+                {"player": cp, "tile": None, "end": "pass", "ends": ends}
+            )
+            cp = (cp + 1) % 4
+            continue
         tile, end = result
         passes = 0
         winning_tile = tile
@@ -263,6 +266,8 @@ def run_arena(
     total_points_a = 0
     total_points_b = 0
     blocked_hands = 0
+    bad_a = 0
+    bad_b = 0
     t0 = time.time()
     for i in range(num_matches):
         rec = run_single_match(bots_list, config, i, rng=rng)
@@ -275,6 +280,12 @@ def run_arena(
         total_points_a += rec.final_scores[a_team]
         total_points_b += rec.final_scores[1 - a_team]
         blocked_hands += sum((1 for h in rec.hands if h.blocked))
+        for hand_rec in rec.hands:
+            for seat, count in hand_rec.bad_returns.items():
+                if (seat % 2) == a_team:
+                    bad_a += count
+                else:
+                    bad_b += count
     elapsed = time.time() - t0
     return {
         "num_matches": num_matches,
@@ -287,6 +298,8 @@ def run_arena(
         "avg_points_team_b": total_points_b / num_matches if num_matches else 0,
         "blocked_hand_rate": blocked_hands / total_hands if total_hands else 0,
         "elapsed_seconds": elapsed,
+        "bot_a_bad_returns": bad_a,
+        "bot_b_bad_returns": bad_b,
         "matches": [
             {
                 "match_index": m.match_index,

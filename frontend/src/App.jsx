@@ -323,6 +323,16 @@ class MyBot(BotBase):
             ))}
           </div>
 
+          {/* A bot that never actually runs -- a wrongly named class, a
+              crash inside choose_move -- otherwise scores like a normal loss.
+              Say so instead. */}
+          {(summary.bot_a_bad_returns > 0 || summary.bot_b_bad_returns > 0) && (
+            <div style={{ background: "rgba(245,158,11,.12)", border: "1px solid rgba(245,158,11,.35)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: ".82rem", color: "#fbbf24" }}>
+              {summary.bot_a_bad_returns > 0 && <div>{summary.bot_a_name} returned something that was not a legal move {summary.bot_a_bad_returns.toLocaleString()} times — the arena played its first legal move instead.</div>}
+              {summary.bot_b_bad_returns > 0 && <div>{summary.bot_b_name} returned something that was not a legal move {summary.bot_b_bad_returns.toLocaleString()} times — the arena played its first legal move instead.</div>}
+            </div>
+          )}
+
           {/* Win pct bar */}
           <div style={{ height: 32, borderRadius: 10, overflow: "hidden", display: "flex", marginBottom: 16 }}>
             <div style={{ width: `${summary.team_a_win_pct}%`, background: "linear-gradient(90deg, #16a34a, #4ade80)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: ".8rem", fontWeight: 700, color: "#000", minWidth: 40, transition: "width .8s ease" }}>
