@@ -10,6 +10,7 @@ from session_store import create_match, get_match, save_match
 class StartMatchRequest(BaseModel):
     target_points: int = 200
     mode: Literal["ffa", "teams"] = "ffa"
+    opponent: Literal["greedy", "random", "cfr"] = "greedy"
 
 
 class PlayMoveRequest(BaseModel):
@@ -70,11 +71,24 @@ def run_bots(match: MatchState):
         match.next_player()
 
 
+@app.get("/api/bots")
+def list_bots():
+    from bots.registry import available
+
+    return {"bots": available()}
+
+
 @app.post("/api/match")
 def start_match(req: StartMatchRequest):
+    from bots.registry import seat_bots
+
     mode = GameMode.FFA if req.mode == "ffa" else GameMode.TEAMS
     config = MatchConfig(target_points=req.target_points, mode=mode)
-    match = MatchState.new_with_default_bots(config)
+    try:
+        seats = seat_bots(req.opponent)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    match = MatchState.new_with_bots(config, seats)
     match.start_new_hand()
     run_bots(match)
     game_id = create_match(match)
