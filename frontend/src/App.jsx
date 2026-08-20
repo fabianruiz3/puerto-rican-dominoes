@@ -503,8 +503,17 @@ function PlayMode({ onBack }) {
   function handleTileClick(idx) {
     if (!state || state.hand_state.current_player !== 0 || handOver || matchOver) return;
     const ends = state.hand_state.ends;
-    if (!ends) { handlePlay(idx, "start"); return; }
     const t = state.players[0].hand[idx];
+    const forced = state.hand_state.forced_tile;
+    if (!ends) {
+      // First hand of a match: the double-six holder has to lead the 6-6.
+      if (forced && !(t.a === forced.a && t.b === forced.b)) {
+        setError(`You must open with the ${forced.a}|${forced.b}`);
+        return;
+      }
+      handlePlay(idx, "start");
+      return;
+    }
     const { left, right } = ends;
     const cL = t.a === left || t.b === left;
     const cR = t.a === right || t.b === right;
@@ -526,7 +535,11 @@ function PlayMode({ onBack }) {
   let t0 = 0, t1 = 0;
   if (state && mode === "TEAMS") { t0 = state.players[0].score; t1 = state.players[1].score; }
   const barW = s => !target || s <= 0 ? "0%" : `${Math.min(s / target, 1) * 100}%`;
-  const canPlay = t => !ends || t.a === ends.left || t.b === ends.left || t.a === ends.right || t.b === ends.right;
+  const forcedTile = state ? state.hand_state.forced_tile : null;
+  const canPlay = t => {
+    if (!ends) return !forcedTile || (t.a === forcedTile.a && t.b === forcedTile.b);
+    return t.a === ends.left || t.b === ends.left || t.a === ends.right || t.b === ends.right;
+  };
   const hasLegalMove = hand.some(canPlay);
   const hr = state ? state.last_hand_result : null;
 
