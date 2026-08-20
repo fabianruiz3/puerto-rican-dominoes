@@ -38,10 +38,22 @@ class MatchState:
     hand_number: int = 0
 
     @classmethod
-    def new_with_default_bots(cls, config: MatchConfig) -> "MatchState":
+    def new_with_bots(cls, config: MatchConfig, bot_list) -> "MatchState":
+        """`bot_list` is one entry per seat; None marks the human's seat."""
         players = [PlayerState(index=i) for i in range(4)]
-        bot_list = [None, bots.GreedyBot(), bots.GreedyBot(), bots.GreedyBot()]
-        return cls(config=config, players=players, bots=bot_list)
+        return cls(config=config, players=players, bots=list(bot_list))
+
+    @classmethod
+    def new_with_default_bots(cls, config: MatchConfig) -> "MatchState":
+        """Seats the fallback heuristic from dominoes.bots.
+
+        Callers that can reach the bots package should build the seat list with
+        bots.registry instead -- the implementations there are considerably
+        stronger, and this one exists so the engine has no dependency on them.
+        """
+        return cls.new_with_bots(
+            config, [None, bots.GreedyBot(), bots.GreedyBot(), bots.GreedyBot()]
+        )
 
     def _find_double_six_holder(self) -> int:
         for p in self.players:
