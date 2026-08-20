@@ -1,13 +1,18 @@
 #!/bin/bash
 #SBATCH --job-name=prdom-cfr
 #SBATCH -p mit_normal
-#SBATCH -t 12:00:00
+#SBATCH -t 06:00:00
 #SBATCH -N 1
-#SBATCH -c 96
-#SBATCH --mem=240G
+#SBATCH -c 48
+#SBATCH --mem=120G
 #SBATCH -o %x-%j.out
 # Train one CFR policy on a single node. This is the recommended shape: no
 # cross-node barrier, everything stays in one process tree.
+#
+# 48 cores for six hours rather than a whole node for twelve: mit_normal is
+# heavily subscribed and a full-node request was quoted a two-day start, while
+# a half-node request backfills. Resubmitting resumes from the checkpoint, so
+# a longer run is several submissions rather than one large reservation.
 #
 #   sbatch cluster/cfr_train.sbatch [LEVEL] [ITERS_PER_ROUND] [ROUNDS]
 #
