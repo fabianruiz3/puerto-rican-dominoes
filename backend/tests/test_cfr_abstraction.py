@@ -6,6 +6,7 @@ shifted meaning between visits to the same key, regrets would accumulate
 against moving targets and the average strategy would be noise.
 """
 
+import os
 import random
 import subprocess
 import sys
@@ -188,9 +189,10 @@ def test_keys_are_identical_in_a_fresh_interpreter_with_a_different_hash_seed():
     Anything routed through Python's salted str hash would silently disagree
     between processes, so the digest is recomputed under PYTHONHASHSEED=1.
     """
+    backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     script = (
         "import random, sys;"
-        "sys.path.insert(0, '.');"
+        f"sys.path.insert(0, {backend!r});"
         "from cfr.engine import new_hand;"
         "from cfr.abstraction import infoset_key, canonical_moves;"
         "rng = random.Random(0); pick = random.Random(1); acc = 0;"
