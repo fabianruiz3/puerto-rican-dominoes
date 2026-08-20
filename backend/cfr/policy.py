@@ -10,6 +10,7 @@ thirteen bytes an entry, and a lookup that touches two cache lines.
     prob   float32 probability of that action at that infoset
 """
 
+import json
 from typing import Optional
 
 import numpy as np
@@ -54,7 +55,7 @@ class Policy:
             prob=self.prob,
             level=np.array(self.level),
             version=np.array(POLICY_VERSION),
-            meta=np.array(repr(self.meta)),
+            meta=np.array(json.dumps(self.meta)),
         )
 
     @classmethod
@@ -67,9 +68,12 @@ class Policy:
                 )
             meta = {}
             if "meta" in data:
+                # JSON, not a repr read back with eval: a policy file is an
+                # artifact that gets copied off a shared cluster, and parsing
+                # it should not be able to run anything.
                 try:
-                    meta = eval(str(data["meta"]), {"__builtins__": {}}, {})
-                except Exception:
+                    meta = json.loads(str(data["meta"]))
+                except (ValueError, TypeError):
                     meta = {}
             return cls(
                 data["info"], data["action"], data["prob"], str(data["level"]), meta
