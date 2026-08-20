@@ -12,7 +12,7 @@ from dominoes.rules import (
     next_starter,
 )
 from dominoes.scoring import compute_hand_scores_teams
-from dominoes.bots import BotBase
+from dominoes.bots import BotBase, call_bot
 
 MAX_HANDS_PER_MATCH = 100
 
@@ -53,13 +53,6 @@ def _find_double_six_holder(players: list[PlayerState]) -> int:
             if t.a == 6 and t.b == 6:
                 return p.index
     return 0
-
-
-def _choose_bot_move(bot: BotBase, hand, ends, context):
-    try:
-        return bot.choose_move(hand, ends, context)
-    except TypeError:
-        return bot.choose_move(hand, ends)
 
 
 def run_single_hand(
@@ -124,7 +117,7 @@ def run_single_hand(
             move_history=move_history,
             forced_tile=forced if ends is None else None,
         )
-        result = _choose_bot_move(bots[cp], hand, ends, context)
+        result = call_bot(bots[cp], hand, ends, context)
         if result is None or tuple(result) not in legal:
             # A bot that passes on a playable hand, or names an illegal
             # placement, does not get to corrupt the board -- take its first
