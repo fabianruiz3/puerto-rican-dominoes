@@ -17,10 +17,24 @@ from .random_bot import RandomBot
 CFR_POLICY_PATH = os.path.join(os.path.dirname(__file__), "cfr_policy.npz")
 
 
+_policy_cache = None
+
+
 def _make_cfr() -> BotBase:
+    """Three seats share one loaded policy.
+
+    CFRBot keeps per-instance RNG and hit counters, so the seats stay
+    independent; only the read-only table is shared, which avoids parsing the
+    same file once per seat.
+    """
+    global _policy_cache
+    from cfr.policy import Policy
+
     from .cfr_bot import CFRBot
 
-    return CFRBot(CFR_POLICY_PATH)
+    if _policy_cache is None:
+        _policy_cache = Policy.load(CFR_POLICY_PATH)
+    return CFRBot(_policy_cache)
 
 
 _BOTS: dict[str, tuple[str, Callable[[], BotBase]]] = {
