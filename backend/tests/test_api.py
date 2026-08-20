@@ -174,3 +174,91 @@ def test_the_three_cfr_seats_share_one_loaded_policy():
     # Shared table, independent bots.
     assert len({id(s) for s in seats}) == 3
     assert all(s.hits == 0 for s in seats)
+
+
+def play_until_stuck(client, game_id, state, limit=30):
+    """Drive the human seat until the hand resolves or it is not their turn."""
+    for _ in range(limit):
+        if state["last_hand_result"] is not None:
+            return state
+        hs = state["hand_state"]
+        if hs["current_player"] != 0:
+            return state
+        hand = state["players"][0]["hand"]
+        ends = hs["ends"]
+        move = None
+        if ends is None:
+            forced = hs["forced_tile"]
+            if forced is None:
+                move = (0, "start")
+            else:
+                move = (
+                    next(
+                        i
+                        for i, t in enumerate(hand)
+                        if (t["a"], t["b"]) == (forced["a"], forced["b"])
+                    ),
+                    "start",
+                )
+        else:
+            for i, t in enumerate(hand):
+                if ends["left"] in (t["a"], t["b"]):
+                    move = (i, "left")
+                    break
+                if ends["right"] in (t["a"], t["b"]):
+                    move = (i, "right")
+                    break
+        if move is None:
+            r = client.post(f"/api/match/{game_id}/pass")
+        else:
+            r = client.post(
+                f"/api/match/{game_id}/play",
+                json={"tile_index": move[0], "end": move[1]},
+            )
+        if r.status_code != 200:
+            return state
+        state = r.json()["state"]
+    return state
+
+
+def test_a_resolved_hand_cannot_be_scored_twice(client):
+    """run_bots resolves a finished hand and stops. When the seat it stops on
+    is the human's, hand_state still says it is their turn -- and acting there
+    used to run run_bots again, which found the hand still over and resolved
+    it a second time. On seed 0 that paid the winning team 45 twice.
+    """
+    random.seed(0)
+    body = client.post("/api/match", json={"mode": "teams", "opponent": "greedy"}).json()
+    game_id = body["gameId"]
+    state = play_until_stuck(client, game_id, body["state"])
+    assert state["last_hand_result"] is not None, "seed 0 no longer resolves a hand"
+
+    scores = [p["score"] for p in state["players"]]
+    assert max(scores) > 0
+
+    assert client.post(f"/api/match/{game_id}/pass").status_code == 400
+    assert (
+        client.post(
+            f"/api/match/{game_id}/play", json={"tile_index": 0, "end": "left"}
+        ).status_code
+        == 400
+    )
+
+    after = client.get(f"/api/match/{game_id}").json()["state"]
+    assert [p["score"] for p in after["players"]] == scores
+
+
+def test_the_next_hand_starts_cleanly_after_a_resolved_one(client):
+    random.seed(0)
+    body = client.post("/api/match", json={"mode": "teams", "opponent": "greedy"}).json()
+    game_id = body["gameId"]
+    state = play_until_stuck(client, game_id, body["state"])
+    scores = [p["score"] for p in state["players"]]
+
+    r = client.post(f"/api/match/{game_id}/next_hand")
+    assert r.status_code == 200
+    nxt = r.json()["state"]
+    assert nxt["hand_number"] == 2
+    assert [p["score"] for p in nxt["players"]] == scores
+    assert nxt["hand_state"]["forced_tile"] is None  # only the opening hand forces
+
