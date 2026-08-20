@@ -80,8 +80,11 @@ def coerce_move(result, legal):
 
 
 class GreedyBot(BotBase):
+    """The dependency-free fallback. bots/greedy_bot.py is the stronger one."""
+
     def choose_move(self, hand: list[Domino], ends, context: Optional[dict] = None):
-        legal = legal_moves_for_hand(hand, ends)
+        forced = (context or {}).get("forced_tile")
+        legal = legal_moves_for_hand(hand, ends, forced)
         if not legal:
             return None
 
