@@ -130,28 +130,27 @@ most of what separates a strong dominoes player from a greedy one.
 ## The CFR Bot
 
 `backend/cfr/` trains a bot with external-sampling Monte Carlo CFR, the
-algorithm behind modern poker bots, adapted to a partnership tile game.
-
-```bash
-cd backend
-python3 -m cfr.train --out runs/tiny --level tiny --iters 12000 --rounds 8
-python3 -m cfr.evaluate --policy runs/tiny/policy.npz --matches 2000
-```
-
-Fifteen minutes on eight laptop cores -- 384,000 traversals -- produces a
-policy that beats the hand-tuned `GreedyBot`:
+algorithm behind modern poker bots, adapted to a partnership tile game. A
+trained policy ships in the tree, so `cfr` is a selectable opponent on
+checkout.
 
 | matchup | win rate | 95% CI |
 | --- | --- | --- |
-| cfr vs greedy | **56.3%** | [54.1%, 58.5%] |
-| cfr vs random | 64.6% | [62.5%, 66.7%] |
-| greedy vs random | 62.5% | [60.4%, 64.6%] |
+| **cfr vs greedy** | **58.5%** | [56.3%, 60.6%] |
+| cfr vs random | 75.0% | [73.0%, 76.8%] |
+| greedy vs random | 60.7% | [58.5%, 62.8%] |
 
 2,000 matches to 200, each pairing played twice with the seats swapped so the
-advantage of opening the match cancels. The policy answers 100% of the
-decisions it meets, so that is CFR playing, not the fallback.
+advantage of opening the match cancels.
 
-`cluster/README.md` covers training at scale on MIT Engaging.
+```bash
+cd backend
+python3 -m cfr.train --out runs/coarse --iters 20000 --rounds 12
+python3 -m cfr.evaluate --policy runs/coarse/policy.npz --matches 2000
+```
+
+`cluster/README.md` covers training at scale on MIT Engaging. The shipped
+policy came from 4.8M traversals on 32 cores for an hour.
 
 ### How it works
 
@@ -159,48 +158,94 @@ A hand is solved rather than a whole match: the payoff is the hand's point
 swing, which keeps the tree about 22 moves deep instead of chasing score
 dependence across a match to 200.
 
-The real problem is that dealing 28 tiles four ways gives 4.7e14 deals, so no
-table can be keyed on the literal position. Positions are compressed into
-information sets built only from what the acting seat can see -- the board, how
-many tiles each seat holds, what each has shown void in, and how its own hand
-relates to the two open ends. Four levels trade description against coverage:
+The hard part is that dealing 28 tiles four ways gives 4.7e14 deals, so nothing
+can be keyed on the literal position. Positions compress into information sets
+built only from what the acting seat can see -- the board, how many tiles each
+seat holds, what each has shown void in, and how its own hand relates to the
+two open ends. Four levels trade description against coverage.
 
-| level | information sets | decisions the table can answer |
-| --- | --- | --- |
-| `standard` | 1.94M | 55% |
-| `coarse` | 934k | 85% |
-| `compact` | 361k | 90% |
-| `tiny` | 34.8k | 99% |
-
-Measured at equal training. A finer level describes each position better but
-spreads the run across so many information sets that the ones arising in play
-are never visited; `tiny` is nearly always able to say something. Which point
-on that curve actually plays best is settled by `cluster/cfr_sweep.sbatch`,
-which trains all four at equal compute and evaluates each.
-
-Where the table has nothing usable, `CFRBot` falls back to `GreedyBot`, so
-incomplete coverage costs accuracy rather than the hand.
+Where the table has nothing to say, `CFRBot` falls back to `GreedyBot`, so
+incomplete coverage costs accuracy rather than the hand. The shipped policy
+answers about 90% of the decisions it meets.
 
 The bot plays the highest-probability action rather than sampling from the
-distribution, which is worth 56.4% against greedy instead of 49.5% on the same
-policy. Mixing is what makes an equilibrium strategy unexploitable, but that
-only pays against an opponent adapting to you; against fixed opponents it adds
-noise to a decision the table has already made. Pass `--sample` to compare.
+distribution, which is worth several points. Mixing is what makes an
+equilibrium strategy unexploitable, but that only pays against an opponent
+adapting to you; against fixed opponents it adds noise to a decision the table
+has already made. Pass `--sample` to compare.
 
-### A caveat worth stating
+### The abstraction is not a coverage problem
 
-CFR's convergence guarantee is for two-player zero-sum games. Teams dominoes is
-zero-sum between the two teams, but a team is two seats that cannot see each
-other's tiles, so it is not a two-player game and the guarantee does not carry
-over. CFR is used here as a strong self-play procedure -- the same way it is
-used for bridge and other partnership games -- and the evidence that it works
-is the arena win rate, not a theorem.
+The obvious way to pick an abstraction is to make it coarse enough that
+training covers the positions that actually come up. Measured that way the
+smallest level looks best by a mile -- it answers 99% of decisions against 55%
+for the most detailed one.
+
+It is also the worst bot. Trained at equal compute, 4.8M traversals each:
+
+| level | information sets | decisions answered | vs greedy |
+| --- | --- | --- | --- |
+| `tiny` | 82,644 | 100% | 42.5% |
+| `compact` | 4,283,414 | 99.9% | 48.8% |
+| `coarse` | 13,750,671 | 99.7% | **59.4%** |
+
+Coverage ranks them exactly backwards. Once the lookups land at all, what
+matters is whether the abstraction can still tell good positions from bad ones,
+and `tiny` cannot: it drops pip identity and most of the hand's shape, so
+positions with genuinely different values collapse together and the strategy
+that is optimal for the merged game is bad in the real one.
+
+### Training a lossy abstraction longer makes it worse
+
+The `tiny` level is a clean demonstration of abstraction pathology. Same code,
+same abstraction, same evaluation -- only the amount of training differs:
+
+| traversals | vs greedy |
+| --- | --- |
+| 384,000 (seed 5) | 56.3% |
+| 384,000 (seed 99) | 54.2% |
+| 4,800,000 | 42.5% |
+
+Undertrained, it beats the heuristic; converged, it loses badly. Both ends
+reproduce across seeds, so this is not a lucky run. CFR is converging correctly
+-- to an equilibrium of an abstract game that is not the game being played.
+
+The practical consequence is that a policy cannot be judged by how well it was
+solved, only by playing it. `cluster/cfr_sweep.sbatch` trains every level at
+equal compute and evaluates each, which is how `coarse` was chosen.
+
+### Pruning
+
+Training keeps every information set it touched -- 232 MB at `coarse`. Most of
+that is positions visited a handful of times whose averaged strategy is still
+close to noise, and the heuristic fallback handles a miss at least as well:
+
+| kept | size | decisions answered | vs greedy |
+| --- | --- | --- | --- |
+| all 13.75M | 232 MB | 99.7% | 59.4% |
+| 1.35M | 39 MB | 94.4% | 59.3% |
+| **688k** | **20 MB** | **89.6%** | **58.8%** |
+| 356k | 10 MB | 83.6% | 56.8% |
+| 139k | 4 MB | 73.0% | 53.6% |
+
+The shipped policy is the 20 MB row -- 94% of the win-rate edge at under a
+tenth of the size. `python3 -m cfr.export --checkpoint ... --scan` prints this
+table for any run.
+
+### A caveat
+
+CFR's convergence guarantee is for two-player zero-sum games. This is zero-sum
+between two teams, but a team is two seats that cannot see each other's tiles,
+so it is not a two-player game and the guarantee does not carry over. CFR is
+used here as a strong self-play procedure -- the same way it is used for bridge
+and other partnership games -- and the evidence that it works is the arena win
+rate, not a theorem.
 
 That makes an independent check on the solver essential, so the same traversal
 that trains the bot is run against Rock-Paper-Scissors and Kuhn poker, whose
 solutions are known in closed form, and asserted to recover them. The cluster
-jobs re-run that gate before training rather than spending twelve hours finding
-out afterwards.
+jobs re-run that gate before training rather than spending hours finding out
+afterwards.
 
 ---
 

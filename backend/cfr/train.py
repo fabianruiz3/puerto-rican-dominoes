@@ -24,7 +24,7 @@ from multiprocessing import get_context
 
 import numpy as np
 
-from .abstraction import LEVELS, TINY, actions_for, key_for, slot_key, slot_keys
+from .abstraction import COARSE, LEVELS, actions_for, key_for, slot_key, slot_keys
 from .engine import new_hand
 from .mccfr import BaseTable, GameSpec, RegretTable, traverse
 from .policy import from_arrays, merge_shards, save_shard, sum_by_pair
@@ -298,7 +298,7 @@ def main(argv=None) -> int:
     p.add_argument("--iters", type=int, default=20000, help="deals per round (all tasks)")
     p.add_argument("--rounds", type=int, default=5)
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
-    p.add_argument("--level", choices=list(LEVELS), default=TINY)
+    p.add_argument("--level", choices=list(LEVELS), default=COARSE)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--open-prob", type=float, default=DEFAULT_OPEN_PROB)
     p.add_argument("--min-mass", type=float, default=0.0)
