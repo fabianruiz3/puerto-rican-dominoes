@@ -27,7 +27,7 @@ import numpy as np
 from .abstraction import LEVELS, TINY, actions_for, key_for, slot_key, slot_keys
 from .engine import new_hand
 from .mccfr import BaseTable, GameSpec, RegretTable, traverse
-from .policy import from_arrays, merge_shards, save_shard
+from .policy import from_arrays, merge_shards, save_shard, sum_by_pair
 
 # Roughly one hand in eight opens a match, so that is how often the traversal
 # should see the forced 6-6 lead. Later hands are opened by the previous
@@ -119,25 +119,13 @@ def run_round(
     ]
     results = pool.map(_work, jobs) if pool is not None else [_work(j) for j in jobs]
 
-    infos = np.concatenate([r[0] for r in results])
-    actions = np.concatenate([r[1] for r in results])
-    regrets = np.concatenate([r[2] for r in results]).astype(np.float64)
-    strategies = np.concatenate([r[3] for r in results]).astype(np.float64)
-    traversals = sum(r[4] for r in results)
-
-    composite = (infos.astype(np.uint64) << np.uint64(6)) | actions.astype(np.uint64)
-    uniq, inverse = np.unique(composite, return_inverse=True)
-    out_regret = np.zeros(uniq.size)
-    out_strategy = np.zeros(uniq.size)
-    np.add.at(out_regret, inverse, regrets)
-    np.add.at(out_strategy, inverse, strategies)
-    return (
-        (uniq >> np.uint64(6)).astype(np.uint64),
-        (uniq & np.uint64(63)).astype(np.uint8),
-        out_regret,
-        out_strategy,
-        traversals,
+    merged = sum_by_pair(
+        np.concatenate([r[0] for r in results]),
+        np.concatenate([r[1] for r in results]),
+        np.concatenate([r[2] for r in results]).astype(np.float64),
+        np.concatenate([r[3] for r in results]).astype(np.float64),
     )
+    return merged + (sum(r[4] for r in results),)
 
 
 # --------------------------------------------------------------- checkpoints
@@ -146,22 +134,12 @@ def run_round(
 def accumulate(checkpoint, delta):
     """Add a round's delta onto the running checkpoint."""
     if checkpoint is None:
-        return delta[:4]
-    info = np.concatenate([checkpoint[0], delta[0]])
-    action = np.concatenate([checkpoint[1], delta[1]])
-    regret = np.concatenate([checkpoint[2], delta[2]])
-    strategy = np.concatenate([checkpoint[3], delta[3]])
-    composite = (info.astype(np.uint64) << np.uint64(6)) | action.astype(np.uint64)
-    uniq, inverse = np.unique(composite, return_inverse=True)
-    out_regret = np.zeros(uniq.size)
-    out_strategy = np.zeros(uniq.size)
-    np.add.at(out_regret, inverse, regret)
-    np.add.at(out_strategy, inverse, strategy)
-    return (
-        (uniq >> np.uint64(6)).astype(np.uint64),
-        (uniq & np.uint64(63)).astype(np.uint8),
-        out_regret,
-        out_strategy,
+        return sum_by_pair(*delta[:4])
+    return sum_by_pair(
+        np.concatenate([checkpoint[0], delta[0]]),
+        np.concatenate([checkpoint[1], delta[1]]),
+        np.concatenate([checkpoint[2], delta[2]]),
+        np.concatenate([checkpoint[3], delta[3]]),
     )
 
 
