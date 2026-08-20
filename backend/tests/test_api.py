@@ -262,3 +262,34 @@ def test_the_next_hand_starts_cleanly_after_a_resolved_one(client):
     assert [p["score"] for p in nxt["players"]] == scores
     assert nxt["hand_state"]["forced_tile"] is None  # only the opening hand forces
 
+
+def test_the_arena_keeps_only_the_most_recent_results(client):
+    """Each stored run holds 50 matches with every hand and move. An unbounded
+    dict grows for as long as the server is up."""
+    import main
+
+    main._arena_results.clear()
+    for i in range(main._MAX_ARENA_RESULTS + 4):
+        main._remember_arena(f"id{i}", {"matches": []})
+    assert len(main._arena_results) == main._MAX_ARENA_RESULTS
+    assert "id0" not in main._arena_results
+    assert f"id{main._MAX_ARENA_RESULTS + 3}" in main._arena_results
+
+
+def test_the_match_store_is_bounded_but_keeps_active_games(client):
+    import session_store
+    from dominoes.game import MatchState
+    from dominoes.types import GameMode, MatchConfig
+
+    session_store._store.clear()
+    cfg = MatchConfig(target_points=200, mode=GameMode.TEAMS)
+    first = session_store.create_match(MatchState.new_with_default_bots(cfg))
+    for _ in range(session_store.MAX_MATCHES - 1):
+        session_store.create_match(MatchState.new_with_default_bots(cfg))
+
+    session_store.get_match(first)  # touching it marks it active
+    for _ in range(5):
+        session_store.create_match(MatchState.new_with_default_bots(cfg))
+
+    assert len(session_store._store) == session_store.MAX_MATCHES
+    assert session_store.get_match(first) is not None, "an active game was evicted"

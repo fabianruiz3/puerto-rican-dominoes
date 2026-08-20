@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from collections import OrderedDict
 from typing import Literal
 from dominoes.types import MatchConfig, GameMode
 from dominoes.bots import call_bot
@@ -189,7 +191,17 @@ def next_hand(game_id: str):
     return {"gameId": game_id, "state": match.to_dict()}
 
 
-_arena_results = {}
+# Arena results are held in memory for the replay viewer. Each run keeps 50
+# matches with every hand and move, so an unbounded dict grows for as long as
+# the server is up; keep the most recent handful and drop the rest.
+_MAX_ARENA_RESULTS = 8
+_arena_results: "OrderedDict[str, dict]" = OrderedDict()
+
+
+def _remember_arena(arena_id: str, stored: dict) -> None:
+    _arena_results[arena_id] = stored
+    while len(_arena_results) > _MAX_ARENA_RESULTS:
+        _arena_results.popitem(last=False)
 
 
 @app.post("/api/arena/run")
@@ -219,10 +231,15 @@ async def run_arena_endpoint(
     except Exception as e:
         print(f"Error loading Bot B: {e}")
         raise HTTPException(status_code=400, detail=f"Error loading Bot B: {str(e)}")
-    num_matches = min(num_matches, 5000)
+    num_matches = max(1, min(num_matches, 5000))
     target_points = max(50, min(target_points, 1000))
     try:
-        results = run_arena(
+        # An arena of a few thousand matches is tens of seconds of straight CPU.
+        # Running it inline in an async endpoint holds the event loop for the
+        # whole time, so every other request -- including a game in progress --
+        # stalls until it finishes. Hand it to the threadpool instead.
+        results = await run_in_threadpool(
+            run_arena,
             bot_a=bot_a_inst,
             bot_b=bot_b_inst,
             num_matches=num_matches,
@@ -241,7 +258,7 @@ async def run_arena_endpoint(
     stored = {**results}
     stored["matches"] = results["matches"][:50]
     stored["total_matches_stored"] = len(stored["matches"])
-    _arena_results[arena_id] = stored
+    _remember_arena(arena_id, stored)
     summary = {k: v for k, v in results.items() if k != "matches"}
     summary["matches_stored"] = min(50, num_matches)
     return summary
