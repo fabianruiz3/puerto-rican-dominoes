@@ -112,6 +112,24 @@ def slot_key(infoset: int, action: int) -> int:
     return _mix(infoset, action)
 
 
+def slot_keys(info, action):
+    """slot_key over whole arrays.
+
+    A round starts by deriving the slot key of every entry in the checkpoint,
+    which at a hundred million entries is minutes of interpreter time done one
+    call at a time. uint64 arithmetic wraps in numpy exactly as the masked
+    Python version does, so this is the same function, vectorised.
+    tests/test_cfr_abstraction.py pins them together.
+    """
+    import numpy as np
+
+    h = np.asarray(info, dtype=np.uint64).copy()
+    v = np.asarray(action, dtype=np.uint64)
+    with np.errstate(over="ignore"):
+        h ^= v + np.uint64(0x9E3779B97F4A7C15) + (h << np.uint64(6)) + (h >> np.uint64(2))
+    return h
+
+
 # ------------------------------------------------------------------ features
 
 
