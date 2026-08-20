@@ -384,3 +384,10 @@ docs/
 
 # Code coverage
 *.lst
+
+# CFR training output. Checkpoints are large and reproducible from a seed;
+# the exported policy is installed by cluster/fetch.sh, not committed here.
+backend/runs/
+backend/cfr/runs/
+*.npz
+!backend/bots/cfr_policy.npz
