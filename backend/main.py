@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Literal
 from dominoes.types import MatchConfig, GameMode
+from dominoes.bots import call_bot
 from dominoes.game import MatchState
 from session_store import create_match, get_match, save_match
 
@@ -50,7 +51,7 @@ def run_bots(match: MatchState):
             match.next_player()
             continue
         context = match.get_bot_context(idx)
-        chosen = _choose_bot_move(bot, match.players[idx].hand, hs.ends, context)
+        chosen = call_bot(bot, match.players[idx].hand, hs.ends, context)
         if chosen is None:
             match.pass_turn()
             match.next_player()
@@ -92,13 +93,6 @@ def _active_hand(match, game_id: str):
     if hs.current_player != 0:
         raise HTTPException(status_code=400, detail="Not human turn")
     return hs
-
-
-def _choose_bot_move(bot, hand, ends, context):
-    try:
-        return bot.choose_move(hand, ends, context)
-    except TypeError:
-        return bot.choose_move(hand, ends)
 
 
 @app.post("/api/match")
