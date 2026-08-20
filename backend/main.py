@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from collections import OrderedDict
 from typing import Literal
 from dominoes.types import MatchConfig, GameMode
-from dominoes.bots import call_bot
+from dominoes.bots import call_bot, coerce_move
 from dominoes.game import MatchState
 from session_store import create_match, get_match, save_match
 
@@ -53,17 +53,14 @@ def run_bots(match: MatchState):
             match.next_player()
             continue
         context = match.get_bot_context(idx)
-        chosen = call_bot(bot, match.players[idx].hand, hs.ends, context)
+        chosen, _ = coerce_move(
+            call_bot(bot, match.players[idx].hand, hs.ends, context), legal
+        )
         if chosen is None:
             match.pass_turn()
             match.next_player()
             continue
-        tile, end = chosen
-        if (tile, end) not in legal:
-            # A bot that returns an illegal placement forfeits the choice rather
-            # than corrupting the board; fall back to the first legal move.
-            tile, end = legal[0]
-        match.play_tile(idx, tile, end)
+        match.play_tile(idx, *chosen)
         match.next_player()
 
 

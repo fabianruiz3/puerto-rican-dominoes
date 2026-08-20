@@ -19,10 +19,12 @@ def _resulting_ends(current_ends, tile, end):
 class GreedyBot(BotBase):
 
     def choose_move(self, hand, ends, context=None):
-        legal = legal_moves_for_hand(hand, ends)
+        context = context or {}
+        # The opening hand of a match forces the 6-6; without this the bot
+        # picks freely and the harness has to overrule it.
+        legal = legal_moves_for_hand(hand, ends, context.get("forced_tile"))
         if not legal:
             return None
-        context = context or {}
         teammate_counts = Counter(context.get("teammate_played_numbers", {}))
         opponent_counts = Counter(context.get("opponent_played_numbers", {}))
         capicu_bonus = context.get("capicu_bonus", 0)
