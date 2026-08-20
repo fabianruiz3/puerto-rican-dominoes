@@ -39,8 +39,6 @@ def _choose_bot_move(bot, hand, ends, context):
 
 
 def run_bots(match: MatchState):
-    from dominoes.rules import legal_moves_for_hand
-
     while True:
         hs = match.hand_state
         if hs is None:
@@ -52,14 +50,22 @@ def run_bots(match: MatchState):
         bot = match.bots[idx]
         if bot is None:
             break
-        player = match.players[idx]
-        legal = legal_moves_for_hand(player.hand, hs.ends)
+        legal = match.legal_moves(idx)
         if not legal:
             match.pass_turn()
             match.next_player()
             continue
         context = match.get_bot_context(idx)
-        tile, end = _choose_bot_move(bot, player.hand, hs.ends, context)
+        chosen = _choose_bot_move(bot, match.players[idx].hand, hs.ends, context)
+        if chosen is None:
+            match.pass_turn()
+            match.next_player()
+            continue
+        tile, end = chosen
+        if (tile, end) not in legal:
+            # A bot that returns an illegal placement forfeits the choice rather
+            # than corrupting the board; fall back to the first legal move.
+            tile, end = legal[0]
         match.play_tile(idx, tile, end)
         match.next_player()
 
@@ -99,18 +105,18 @@ def play_move(game_id: str, req: PlayMoveRequest):
     if not 0 <= req.tile_index < len(player.hand):
         raise HTTPException(status_code=400, detail="Invalid tile index")
     tile = player.hand[req.tile_index]
-    if req.end != "start" and hs.ends is not None:
-        left, right = hs.ends
-        if req.end == "left" and tile.a != left and (tile.b != left):
+    legal = match.legal_moves(0)
+    if (tile, req.end) not in legal:
+        forced = hs.forced_tile if hs.ends is None else None
+        if forced is not None:
             raise HTTPException(
                 status_code=400,
-                detail=f"Tile {tile.a}|{tile.b} cannot play on left end {left}",
+                detail=f"The opening lead must be the {forced.a}|{forced.b}",
             )
-        if req.end == "right" and tile.a != right and (tile.b != right):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tile {tile.a}|{tile.b} cannot play on right end {right}",
-            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tile {tile.a}|{tile.b} cannot play on the {req.end} end",
+        )
     try:
         match.play_tile(0, tile, req.end)
     except ValueError as e:
@@ -123,8 +129,6 @@ def play_move(game_id: str, req: PlayMoveRequest):
 
 @app.post("/api/match/{game_id}/pass")
 def pass_turn(game_id: str):
-    from dominoes.rules import legal_moves_for_hand
-
     try:
         match = get_match(game_id)
     except KeyError:
@@ -134,8 +138,7 @@ def pass_turn(game_id: str):
         raise HTTPException(status_code=400, detail="No active hand")
     if hs.current_player != 0:
         raise HTTPException(status_code=400, detail="Not human turn")
-    player = match.players[0]
-    legal = legal_moves_for_hand(player.hand, hs.ends)
+    legal = match.legal_moves(0)
     if legal:
         raise HTTPException(
             status_code=400, detail="You have legal moves and cannot pass"
