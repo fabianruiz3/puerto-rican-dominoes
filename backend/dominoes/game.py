@@ -4,6 +4,13 @@ import random
 from .types import Domino, MatchConfig, PlayerState, GameMode
 from .tiles import generate_double_six_set
 from .scoring import compute_hand_scores_ffa, compute_hand_scores_teams
+from .context import BotContext, build_bot_context
+from .rules import (
+    OPENING_TILE,
+    legal_moves_for_hand,
+    resolve_blocked_hand,
+    next_starter,
+)
 from . import bots
 
 
@@ -17,6 +24,7 @@ class HandState:
     ends_before_last_move: Optional[tuple[int, int]] = None
     last_move_blocked: bool = False
     starter_index: int = 0
+    forced_tile: Optional[Domino] = None
     move_history: list[dict] = field(default_factory=list)
 
 
@@ -30,10 +38,22 @@ class MatchState:
     hand_number: int = 0
 
     @classmethod
-    def new_with_default_bots(cls, config: MatchConfig) -> "MatchState":
+    def new_with_bots(cls, config: MatchConfig, bot_list) -> "MatchState":
+        """`bot_list` is one entry per seat; None marks the human's seat."""
         players = [PlayerState(index=i) for i in range(4)]
-        bot_list = [None, bots.GreedyBot(), bots.GreedyBot(), bots.GreedyBot()]
-        return cls(config=config, players=players, bots=bot_list)
+        return cls(config=config, players=players, bots=list(bot_list))
+
+    @classmethod
+    def new_with_default_bots(cls, config: MatchConfig) -> "MatchState":
+        """Seats the fallback heuristic from dominoes.bots.
+
+        Callers that can reach the bots package should build the seat list with
+        bots.registry instead -- the implementations there are considerably
+        stronger, and this one exists so the engine has no dependency on them.
+        """
+        return cls.new_with_bots(
+            config, [None, bots.GreedyBot(), bots.GreedyBot(), bots.GreedyBot()]
+        )
 
     def _find_double_six_holder(self) -> int:
         for p in self.players:
@@ -42,30 +62,14 @@ class MatchState:
                     return p.index
         return 0
 
-    def _team_for_player(self, player_index: int) -> int:
-        return 0 if player_index in (0, 2) else 1
-
-    def _lowest_pip_player(self, candidates: list[int]) -> int:
-        return min(candidates, key=lambda idx: (self.players[idx].hand_pips(), idx))
-
     def _determine_next_starter_from_last_hand(self) -> int:
+        """Whoever earned the open: the player who went out, or who won the
+        tranque on pips. resolve_hand already stored that player as the winner.
+        """
         result = self.last_hand_result
         if not result:
             return self._find_double_six_holder()
-        if not result["blocked"]:
-            return result["winner"]
-        blocker = result.get("blocker")
-        winner = result["winner"]
-        if self.config.mode == GameMode.FFA:
-            return winner
-        if blocker is None:
-            return winner
-        blocker_team = self._team_for_player(blocker)
-        winner_team = self._team_for_player(winner)
-        if blocker_team == winner_team:
-            return blocker
-        winning_team_players = [0, 2] if winner_team == 0 else [1, 3]
-        return self._lowest_pip_player(winning_team_players)
+        return next_starter(result["winner"])
 
     def start_new_hand(self):
         tiles = generate_double_six_set()
@@ -75,46 +79,42 @@ class MatchState:
         for _ in range(7):
             for p in self.players:
                 p.hand.append(tiles.pop())
+        # First hand of the match: the double-six holder opens, and must lead
+        # the 6-6. Every later hand is opened freely by whoever earned it.
         if self.hand_number == 0:
             start = self._find_double_six_holder()
+            forced = OPENING_TILE
         else:
             start = self._determine_next_starter_from_last_hand()
-        self.hand_state = HandState(current_player=start, starter_index=start)
+            forced = None
+        self.hand_state = HandState(
+            current_player=start, starter_index=start, forced_tile=forced
+        )
         self.last_hand_result = None
         self.hand_number += 1
 
-    def get_bot_context(self, player_index: int) -> dict:
+    def legal_moves(self, player_index: int) -> list[tuple[Domino, str]]:
+        """Legal placements for a seat, honouring the forced opening lead."""
         hs = self.hand_state
-        teammate_played = {i: 0 for i in range(7)}
-        opponent_played = {i: 0 for i in range(7)}
-        if hs is not None:
-            if self.config.mode == GameMode.TEAMS:
-                teammate = (player_index + 2) % 4
-            else:
-                teammate = None
-            for move in hs.move_history:
-                if move["tile"] is None:
-                    continue
-                a, b = move["tile"]
-                bucket = None
-                if teammate is not None and move["player"] == teammate:
-                    bucket = teammate_played
-                elif move["player"] != player_index:
-                    bucket = opponent_played
-                if bucket is not None:
-                    bucket[a] += 1
-                    bucket[b] += 1
-        return {
-            "player_index": player_index,
-            "mode": self.config.mode.name,
-            "teammate_index": (
-                (player_index + 2) % 4 if self.config.mode == GameMode.TEAMS else None
-            ),
-            "teammate_played_numbers": teammate_played,
-            "opponent_played_numbers": opponent_played,
-            "capicu_bonus": self.config.capicu_bonus,
-            "chuchazo_bonus": self.config.chuchazo_bonus,
-        }
+        assert hs is not None
+        forced = hs.forced_tile if hs.ends is None else None
+        return legal_moves_for_hand(self.players[player_index].hand, hs.ends, forced)
+
+    def get_bot_context(self, player_index: int) -> BotContext:
+        hs = self.hand_state
+        if hs is None:
+            return build_bot_context(
+                player_index, self.config, [], None, [len(p.hand) for p in self.players], []
+            )
+        return build_bot_context(
+            player_index=player_index,
+            config=self.config,
+            board=hs.layout,
+            ends=hs.ends,
+            hand_counts=[len(p.hand) for p in self.players],
+            move_history=hs.move_history,
+            forced_tile=hs.forced_tile if hs.ends is None else None,
+        )
 
     def play_tile(self, player_index: int, tile: Domino, end: str):
         hs = self.hand_state
@@ -150,8 +150,14 @@ class MatchState:
                 raise ValueError("Invalid end")
         hs.passes_in_a_row = 0
         hs.winning_tile = tile
+        hs.forced_tile = None
         hs.move_history.append(
-            {"player": player_index, "tile": (tile.a, tile.b), "end": end}
+            {
+                "player": player_index,
+                "tile": (tile.a, tile.b),
+                "end": end,
+                "ends": hs.ends_before_last_move,
+            }
         )
         player = self.players[player_index]
         player.hand.remove(tile)
@@ -161,7 +167,12 @@ class MatchState:
         assert hs is not None
         hs.passes_in_a_row += 1
         hs.move_history.append(
-            {"player": hs.current_player, "tile": None, "end": "pass"}
+            {
+                "player": hs.current_player,
+                "tile": None,
+                "end": "pass",
+                "ends": hs.ends,
+            }
         )
 
     def next_player(self):
@@ -196,48 +207,31 @@ class MatchState:
         ]
         blocker = (hs.current_player - 1) % 4 if blocked else None
         if blocked:
-            winner = min(range(4), key=lambda i: hands_pips[i])
+            winner, _ = resolve_blocked_hand(hands_pips, self.config.mode, blocker)
         else:
             winner = (hs.current_player - 1) % 4
-        if self.config.mode == GameMode.FFA:
-            deltas = compute_hand_scores_ffa(
-                config=self.config,
-                hands_pips=hands_pips,
-                winner_index=winner,
-                winning_tile=hs.winning_tile,
-                blocked=blocked,
-                ends_before=hs.ends_before_last_move,
-                ends_after=hs.ends,
-            )
-        else:
-            deltas = compute_hand_scores_teams(
-                config=self.config,
-                hands_pips=hands_pips,
-                winner_index=winner,
-                winning_tile=hs.winning_tile,
-                blocked=blocked,
-                ends_before=hs.ends_before_last_move,
-                ends_after=hs.ends,
-            )
+        score_fn = (
+            compute_hand_scores_ffa
+            if self.config.mode == GameMode.FFA
+            else compute_hand_scores_teams
+        )
+        deltas = score_fn(
+            config=self.config,
+            hands_pips=hands_pips,
+            winner_index=winner,
+            winning_tile=hs.winning_tile,
+            blocked=blocked,
+            ends_before=hs.ends_before_last_move,
+            ends_after=hs.ends,
+        )
         for i, p in enumerate(self.players):
             p.score += deltas[i]
         hs.last_move_blocked = blocked
-        if blocked and self.config.mode == GameMode.TEAMS:
-            winner_team = self._team_for_player(winner)
-            next_starter = (
-                blocker
-                if blocker is not None and self._team_for_player(blocker) == winner_team
-                else self._lowest_pip_player([0, 2] if winner_team == 0 else [1, 3])
-            )
-        elif blocked:
-            next_starter = winner
-        else:
-            next_starter = winner
         self.last_hand_result = {
             "winner": winner,
             "blocked": blocked,
             "blocker": blocker,
-            "next_starter": next_starter,
+            "next_starter": next_starter(winner),
             "remaining": remaining,
             "points_earned": deltas,
         }
@@ -259,6 +253,7 @@ class MatchState:
         current_player = hs.current_player if hs is not None else 0
         passes = hs.passes_in_a_row if hs is not None else 0
         last_blocked = hs.last_move_blocked if hs is not None else False
+        forced = hs.forced_tile if hs is not None and hs.ends is None else None
         return {
             "config": {
                 "target_points": self.config.target_points,
@@ -283,7 +278,11 @@ class MatchState:
                 "passes_in_a_row": passes,
                 "last_move_blocked": last_blocked,
                 "starter_index": hs.starter_index if hs is not None else 0,
+                "forced_tile": (
+                    {"a": forced.a, "b": forced.b} if forced is not None else None
+                ),
             },
+            "hand_number": self.hand_number,
             "last_hand_result": self.last_hand_result,
             "match_over": self.is_match_over(),
         }

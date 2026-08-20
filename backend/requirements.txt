@@ -1,3 +1,6 @@
 fastapi
 uvicorn[standard]
 python-multipart
+# Required by the CFR trainer and by CFRBot at play time. The game server
+# itself does not import it until a CFR bot is actually seated.
+numpy

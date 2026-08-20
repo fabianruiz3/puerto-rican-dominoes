@@ -1,8 +1,11 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from collections import OrderedDict
 from typing import Literal
 from dominoes.types import MatchConfig, GameMode
+from dominoes.bots import call_bot, coerce_move
 from dominoes.game import MatchState
 from session_store import create_match, get_match, save_match
 
@@ -10,6 +13,7 @@ from session_store import create_match, get_match, save_match
 class StartMatchRequest(BaseModel):
     target_points: int = 200
     mode: Literal["ffa", "teams"] = "ffa"
+    opponent: Literal["greedy", "random", "cfr"] = "greedy"
 
 
 class PlayMoveRequest(BaseModel):
@@ -31,16 +35,7 @@ app.add_middleware(
 )
 
 
-def _choose_bot_move(bot, hand, ends, context):
-    try:
-        return bot.choose_move(hand, ends, context)
-    except TypeError:
-        return bot.choose_move(hand, ends)
-
-
 def run_bots(match: MatchState):
-    from dominoes.rules import legal_moves_for_hand
-
     while True:
         hs = match.hand_state
         if hs is None:
@@ -52,23 +47,64 @@ def run_bots(match: MatchState):
         bot = match.bots[idx]
         if bot is None:
             break
-        player = match.players[idx]
-        legal = legal_moves_for_hand(player.hand, hs.ends)
+        legal = match.legal_moves(idx)
         if not legal:
             match.pass_turn()
             match.next_player()
             continue
         context = match.get_bot_context(idx)
-        tile, end = _choose_bot_move(bot, player.hand, hs.ends, context)
-        match.play_tile(idx, tile, end)
+        chosen, _ = coerce_move(
+            call_bot(bot, match.players[idx].hand, hs.ends, context), legal
+        )
+        if chosen is None:
+            match.pass_turn()
+            match.next_player()
+            continue
+        match.play_tile(idx, *chosen)
         match.next_player()
+
+
+@app.get("/api/bots")
+def list_bots():
+    from bots.registry import available
+
+    return {"bots": available()}
+
+
+def _active_hand(match, game_id: str):
+    """The hand in progress, or a 400 explaining why there is not one.
+
+    run_bots resolves a finished hand and stops, and if the seat it stops on is
+    the human's, hand_state still says it is their turn. Without this check a
+    play or a pass at that point runs run_bots again, which finds the hand
+    still over and resolves it a second time -- paying the winning team twice
+    for one hand, once per click.
+    """
+    hs = match.hand_state
+    if hs is None:
+        raise HTTPException(status_code=400, detail="No active hand")
+    if match.last_hand_result is not None:
+        raise HTTPException(
+            status_code=400, detail="This hand is over; start the next one"
+        )
+    if match.is_match_over():
+        raise HTTPException(status_code=400, detail="Match is over")
+    if hs.current_player != 0:
+        raise HTTPException(status_code=400, detail="Not human turn")
+    return hs
 
 
 @app.post("/api/match")
 def start_match(req: StartMatchRequest):
+    from bots.registry import seat_bots
+
     mode = GameMode.FFA if req.mode == "ffa" else GameMode.TEAMS
     config = MatchConfig(target_points=req.target_points, mode=mode)
-    match = MatchState.new_with_default_bots(config)
+    try:
+        seats = seat_bots(req.opponent)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    match = MatchState.new_with_bots(config, seats)
     match.start_new_hand()
     run_bots(match)
     game_id = create_match(match)
@@ -90,27 +126,23 @@ def play_move(game_id: str, req: PlayMoveRequest):
         match = get_match(game_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Match not found")
-    hs = match.hand_state
-    if hs is None:
-        raise HTTPException(status_code=400, detail="No active hand")
-    if hs.current_player != 0:
-        raise HTTPException(status_code=400, detail="Not human turn")
+    hs = _active_hand(match, game_id)
     player = match.players[0]
     if not 0 <= req.tile_index < len(player.hand):
         raise HTTPException(status_code=400, detail="Invalid tile index")
     tile = player.hand[req.tile_index]
-    if req.end != "start" and hs.ends is not None:
-        left, right = hs.ends
-        if req.end == "left" and tile.a != left and (tile.b != left):
+    legal = match.legal_moves(0)
+    if (tile, req.end) not in legal:
+        forced = hs.forced_tile if hs.ends is None else None
+        if forced is not None:
             raise HTTPException(
                 status_code=400,
-                detail=f"Tile {tile.a}|{tile.b} cannot play on left end {left}",
+                detail=f"The opening lead must be the {forced.a}|{forced.b}",
             )
-        if req.end == "right" and tile.a != right and (tile.b != right):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tile {tile.a}|{tile.b} cannot play on right end {right}",
-            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tile {tile.a}|{tile.b} cannot play on the {req.end} end",
+        )
     try:
         match.play_tile(0, tile, req.end)
     except ValueError as e:
@@ -123,19 +155,12 @@ def play_move(game_id: str, req: PlayMoveRequest):
 
 @app.post("/api/match/{game_id}/pass")
 def pass_turn(game_id: str):
-    from dominoes.rules import legal_moves_for_hand
-
     try:
         match = get_match(game_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Match not found")
-    hs = match.hand_state
-    if hs is None:
-        raise HTTPException(status_code=400, detail="No active hand")
-    if hs.current_player != 0:
-        raise HTTPException(status_code=400, detail="Not human turn")
-    player = match.players[0]
-    legal = legal_moves_for_hand(player.hand, hs.ends)
+    _active_hand(match, game_id)
+    legal = match.legal_moves(0)
     if legal:
         raise HTTPException(
             status_code=400, detail="You have legal moves and cannot pass"
@@ -163,7 +188,17 @@ def next_hand(game_id: str):
     return {"gameId": game_id, "state": match.to_dict()}
 
 
-_arena_results = {}
+# Arena results are held in memory for the replay viewer. Each run keeps 50
+# matches with every hand and move, so an unbounded dict grows for as long as
+# the server is up; keep the most recent handful and drop the rest.
+_MAX_ARENA_RESULTS = 8
+_arena_results: "OrderedDict[str, dict]" = OrderedDict()
+
+
+def _remember_arena(arena_id: str, stored: dict) -> None:
+    _arena_results[arena_id] = stored
+    while len(_arena_results) > _MAX_ARENA_RESULTS:
+        _arena_results.popitem(last=False)
 
 
 @app.post("/api/arena/run")
@@ -193,10 +228,15 @@ async def run_arena_endpoint(
     except Exception as e:
         print(f"Error loading Bot B: {e}")
         raise HTTPException(status_code=400, detail=f"Error loading Bot B: {str(e)}")
-    num_matches = min(num_matches, 5000)
+    num_matches = max(1, min(num_matches, 5000))
     target_points = max(50, min(target_points, 1000))
     try:
-        results = run_arena(
+        # An arena of a few thousand matches is tens of seconds of straight CPU.
+        # Running it inline in an async endpoint holds the event loop for the
+        # whole time, so every other request -- including a game in progress --
+        # stalls until it finishes. Hand it to the threadpool instead.
+        results = await run_in_threadpool(
+            run_arena,
             bot_a=bot_a_inst,
             bot_b=bot_b_inst,
             num_matches=num_matches,
@@ -215,7 +255,7 @@ async def run_arena_endpoint(
     stored = {**results}
     stored["matches"] = results["matches"][:50]
     stored["total_matches_stored"] = len(stored["matches"])
-    _arena_results[arena_id] = stored
+    _remember_arena(arena_id, stored)
     summary = {k: v for k, v in results.items() if k != "matches"}
     summary["matches_stored"] = min(50, num_matches)
     return summary

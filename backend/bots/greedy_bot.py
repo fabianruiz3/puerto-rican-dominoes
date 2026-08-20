@@ -1,28 +1,17 @@
 from collections import Counter
 from dominoes.bots import BotBase
-from dominoes.rules import legal_moves_for_hand
-
-
-def _resulting_ends(current_ends, tile, end):
-    if current_ends is None or end == "start":
-        return (tile.a, tile.b)
-    left, right = current_ends
-    if end == "left":
-        if tile.a == left:
-            return (tile.b, right)
-        return (tile.a, right)
-    if tile.a == right:
-        return (left, tile.b)
-    return (left, tile.a)
+from dominoes.rules import legal_moves_for_hand, resulting_ends
 
 
 class GreedyBot(BotBase):
 
     def choose_move(self, hand, ends, context=None):
-        legal = legal_moves_for_hand(hand, ends)
+        context = context or {}
+        # The opening hand of a match forces the 6-6; without this the bot
+        # picks freely and the harness has to overrule it.
+        legal = legal_moves_for_hand(hand, ends, context.get("forced_tile"))
         if not legal:
             return None
-        context = context or {}
         teammate_counts = Counter(context.get("teammate_played_numbers", {}))
         opponent_counts = Counter(context.get("opponent_played_numbers", {}))
         capicu_bonus = context.get("capicu_bonus", 0)
@@ -37,7 +26,7 @@ class GreedyBot(BotBase):
             remaining_counts = hand_number_counts.copy()
             remaining_counts[tile.a] -= 1
             remaining_counts[tile.b] -= 1
-            new_left, new_right = _resulting_ends(ends, tile, end)
+            new_left, new_right = resulting_ends(ends, tile, end)
             s = 0.0
             s += 2.5 * remaining_counts[new_left]
             s += 2.5 * remaining_counts[new_right]
