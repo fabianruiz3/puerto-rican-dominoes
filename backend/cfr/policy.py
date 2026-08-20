@@ -116,6 +116,41 @@ def from_arrays(info, action, strategy, level, min_mass=0.0, meta=None) -> Polic
     return Policy(info[keep], action[keep], prob[keep], level, meta)
 
 
+def sum_by_pair(info, action, regret, strategy) -> tuple:
+    """Group (infoset, action) duplicates and sum their regret and strategy.
+
+    Do NOT be tempted to pack the pair into one integer as (info << 6) | action
+    to hand to np.unique. The infoset key uses all 64 bits, so that shift drops
+    the top six of them: every key comes back truncated, distinct infosets
+    collide, and a policy trained that way misses roughly 98% of its lookups at
+    play time -- which reads as an undertrained bot rather than a bug. Sorting
+    on the pair and summing between group boundaries costs no more and keeps
+    every bit.
+    """
+    info = np.asarray(info, dtype=np.uint64)
+    action = np.asarray(action, dtype=np.uint8)
+    regret = np.asarray(regret, dtype=np.float64)
+    strategy = np.asarray(strategy, dtype=np.float64)
+    if info.size == 0:
+        return info, action, regret, strategy
+
+    order = np.lexsort((action, info))
+    info, action = info[order], action[order]
+    regret, strategy = regret[order], strategy[order]
+
+    boundary = np.empty(info.size, dtype=bool)
+    boundary[0] = True
+    np.not_equal(info[1:], info[:-1], out=boundary[1:])
+    boundary[1:] |= action[1:] != action[:-1]
+    starts = np.flatnonzero(boundary)
+    return (
+        info[starts],
+        action[starts],
+        np.add.reduceat(regret, starts),
+        np.add.reduceat(strategy, starts),
+    )
+
+
 def merge_shards(paths: list[str]) -> tuple:
     """Sum raw (info, action, regret, strategy) shards from parallel workers.
 
@@ -139,24 +174,11 @@ def merge_shards(paths: list[str]) -> tuple:
             empty,
         )
 
-    info = np.concatenate(infos)
-    action = np.concatenate(actions)
-    regret = np.concatenate(regrets).astype(np.float64)
-    strategy = np.concatenate(strategies).astype(np.float64)
-
-    # Join on (infoset, action). np.unique over a composite key keeps the
-    # merge order-independent, so shards can arrive in any order.
-    composite = (info.astype(np.uint64) << np.uint64(6)) | action.astype(np.uint64)
-    uniq, inverse = np.unique(composite, return_inverse=True)
-    out_regret = np.zeros(uniq.size)
-    out_strategy = np.zeros(uniq.size)
-    np.add.at(out_regret, inverse, regret)
-    np.add.at(out_strategy, inverse, strategy)
-    return (
-        (uniq >> np.uint64(6)).astype(np.uint64),
-        (uniq & np.uint64(63)).astype(np.uint8),
-        out_regret,
-        out_strategy,
+    return sum_by_pair(
+        np.concatenate(infos),
+        np.concatenate(actions),
+        np.concatenate(regrets).astype(np.float64),
+        np.concatenate(strategies).astype(np.float64),
     )
 
 
