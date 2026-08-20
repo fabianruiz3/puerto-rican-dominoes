@@ -17,11 +17,11 @@
 # hours slots into a partially-used node almost immediately. The sweep only has
 # to rank the levels -- train the winner properly with cfr_train.sbatch.
 #
-# `standard` is deliberately not in the sweep. It has both the worst measured
-# coverage (55% of play decisions answerable, against 99% for tiny) and by far
-# the fastest-growing table -- extrapolating its observed growth puts it near
-# 1e8 information sets at this iteration count, which is a memory risk for no
-# expected gain. Train it on its own with cfr_train.sbatch if you want it.
+# `standard` is not in the sweep because its table grows fast enough to be a
+# memory risk at this iteration count -- extrapolating its observed growth puts
+# it near 1e8 information sets. Given that coarse beat both smaller levels,
+# standard is the one worth trying next; give it its own run with
+# cfr_train.sbatch and a large --mem rather than adding it here.
 set -uo pipefail
 
 LEVELS=(tiny compact coarse)

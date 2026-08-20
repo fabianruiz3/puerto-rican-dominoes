@@ -16,11 +16,11 @@
 #
 #   sbatch cluster/cfr_train.sbatch [LEVEL] [ITERS_PER_ROUND] [ROUNDS]
 #
-# Defaults train the `tiny` abstraction. Output lands in
+# Defaults train the `coarse` abstraction, which the sweep found strongest. Output lands in
 # /orcd/pool/007/$USER/prdom/<level>/ as checkpoint.npz plus policy.npz.
 set -uo pipefail
 
-LEVEL="${1:-tiny}"
+LEVEL="${1:-coarse}"
 ITERS="${2:-200000}"
 ROUNDS="${3:-24}"
 

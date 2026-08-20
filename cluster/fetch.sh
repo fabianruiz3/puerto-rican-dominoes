@@ -1,7 +1,7 @@
 #!/bin/bash
 # Pull a trained policy back from Engaging and install it for CFRBot.
 #
-#   bash cluster/fetch.sh                 # the tiny policy from a plain run
+#   bash cluster/fetch.sh                 # the coarse policy from a plain run
 #   bash cluster/fetch.sh compact         # a named level
 #   bash cluster/fetch.sh sweep/compact   # a level from the sweep
 #
@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 REMOTE="${PRDOM_REMOTE:-engaging}"
-LEVEL="${1:-tiny}"
+LEVEL="${1:-coarse}"
 BASE="/orcd/pool/007/$(ssh "$REMOTE" 'echo $USER')/prdom"
 
 SRC=""
