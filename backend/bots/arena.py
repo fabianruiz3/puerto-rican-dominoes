@@ -1,13 +1,20 @@
 import time
 import random
-from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 from dominoes.types import Domino, MatchConfig, PlayerState, GameMode
 from dominoes.tiles import generate_double_six_set
-from dominoes.rules import legal_moves_for_hand
+from dominoes.context import build_bot_context
+from dominoes.rules import (
+    OPENING_TILE,
+    legal_moves_for_hand,
+    resolve_blocked_hand,
+    next_starter,
+)
 from dominoes.scoring import compute_hand_scores_teams
 from dominoes.bots import BotBase
+
+MAX_HANDS_PER_MATCH = 100
 
 
 @dataclass
@@ -48,42 +55,6 @@ def _find_double_six_holder(players: list[PlayerState]) -> int:
     return 0
 
 
-def _team_for_player(player_index: int) -> int:
-    return 0 if player_index in (0, 2) else 1
-
-
-def _lowest_pip_player(players: list[PlayerState], indices: list[int]) -> int:
-    return min(indices, key=lambda idx: (players[idx].hand_pips(), idx))
-
-
-def _build_context(
-    player_index: int, move_history: list[dict], config: MatchConfig
-) -> dict:
-    teammate_played = Counter({i: 0 for i in range(7)})
-    opponent_played = Counter({i: 0 for i in range(7)})
-    teammate = (player_index + 2) % 4
-    for move in move_history:
-        tile = move.get("tile")
-        if tile is None:
-            continue
-        a, b = tile
-        if move["player"] == teammate:
-            teammate_played[a] += 1
-            teammate_played[b] += 1
-        elif move["player"] != player_index:
-            opponent_played[a] += 1
-            opponent_played[b] += 1
-    return {
-        "player_index": player_index,
-        "mode": config.mode.name,
-        "teammate_index": teammate,
-        "teammate_played_numbers": dict(teammate_played),
-        "opponent_played_numbers": dict(opponent_played),
-        "capicu_bonus": config.capicu_bonus,
-        "chuchazo_bonus": config.chuchazo_bonus,
-    }
-
-
 def _choose_bot_move(bot: BotBase, hand, ends, context):
     try:
         return bot.choose_move(hand, ends, context)
@@ -96,52 +67,82 @@ def run_single_hand(
     bots: list[BotBase],
     config: MatchConfig,
     start_player: int,
+    rng: Optional[random.Random] = None,
+    opening_hand: bool = False,
 ) -> HandRecord:
+    """Play one hand to completion.
+
+    `opening_hand` marks the first hand of a match: the double-six holder leads
+    and is required to play the 6-6. Pass start_player=-1 to have the holder
+    located automatically.
+    """
+    rng = rng or random
     tiles = generate_double_six_set()
-    random.shuffle(tiles)
+    rng.shuffle(tiles)
     for p in players:
         p.hand.clear()
     for _ in range(7):
         for p in players:
             p.hand.append(tiles.pop())
-    if start_player == -1:
+    if opening_hand or start_player == -1:
         start_player = _find_double_six_holder(players)
+    forced = OPENING_TILE if opening_hand else None
+
     rec = HandRecord(
         starting_hands=[[(t.a, t.b) for t in p.hand] for p in players],
         first_player=start_player,
     )
-    layout = []
+    layout: list[Domino] = []
     ends = None
     ends_before = None
     passes = 0
     cp = start_player
     winning_tile = None
-    move_history = []
+    move_history: list[dict] = []
+
     while True:
         if any((len(p.hand) == 0 for p in players)):
             break
         if passes >= 4:
             break
         hand = players[cp].hand
-        legal = legal_moves_for_hand(hand, ends)
+        legal = legal_moves_for_hand(hand, ends, forced if ends is None else None)
         if not legal:
             passes += 1
             rec.moves.append(MoveRecord(cp, -1, -1, "pass"))
-            move_history.append({"player": cp, "tile": None, "end": "pass"})
+            move_history.append(
+                {"player": cp, "tile": None, "end": "pass", "ends": ends}
+            )
             cp = (cp + 1) % 4
             continue
-        context = _build_context(cp, move_history, config)
+        context = build_bot_context(
+            player_index=cp,
+            config=config,
+            board=layout,
+            ends=ends,
+            hand_counts=[len(p.hand) for p in players],
+            move_history=move_history,
+            forced_tile=forced if ends is None else None,
+        )
         result = _choose_bot_move(bots[cp], hand, ends, context)
-        if result is None:
-            passes += 1
-            rec.moves.append(MoveRecord(cp, -1, -1, "pass"))
-            move_history.append({"player": cp, "tile": None, "end": "pass"})
-            cp = (cp + 1) % 4
-            continue
+        if result is None or tuple(result) not in legal:
+            # A bot that passes on a playable hand, or names an illegal
+            # placement, does not get to corrupt the board -- take its first
+            # legal move instead so the match stays valid.
+            if result is None:
+                passes += 1
+                rec.moves.append(MoveRecord(cp, -1, -1, "pass"))
+                move_history.append(
+                    {"player": cp, "tile": None, "end": "pass", "ends": ends}
+                )
+                cp = (cp + 1) % 4
+                continue
+            result = legal[0]
         tile, end = result
         passes = 0
         winning_tile = tile
         ends_before = ends
+        forced = None
         if ends is None:
             layout.append(tile)
             ends = (tile.a, tile.b)
@@ -151,28 +152,31 @@ def run_single_hand(
                 if tile.a == left:
                     layout.insert(0, Domino(tile.b, tile.a))
                     ends = (tile.b, right)
-                elif tile.b == left:
+                else:
                     layout.insert(0, tile)
                     ends = (tile.a, right)
             elif end == "right":
                 if tile.a == right:
                     layout.append(tile)
                     ends = (left, tile.b)
-                elif tile.b == right:
+                else:
                     layout.append(Domino(tile.b, tile.a))
                     ends = (left, tile.a)
-            elif end == "start":
+            else:
                 layout.append(tile)
                 ends = (tile.a, tile.b)
         hand.remove(tile)
         rec.moves.append(MoveRecord(cp, tile.a, tile.b, end))
-        move_history.append({"player": cp, "tile": (tile.a, tile.b), "end": end})
+        move_history.append(
+            {"player": cp, "tile": (tile.a, tile.b), "end": end, "ends": ends_before}
+        )
         cp = (cp + 1) % 4
+
     blocked = passes >= 4
     hands_pips = [p.hand_pips() for p in players]
     if blocked:
-        winner = min(range(4), key=lambda i: hands_pips[i])
         blocker = (cp - 1) % 4
+        winner, _ = resolve_blocked_hand(hands_pips, config.mode, blocker)
     else:
         winner = (cp - 1) % 4
         blocker = None
@@ -190,16 +194,7 @@ def run_single_hand(
     rec.winner = winner
     rec.blocked = blocked
     rec.blocker = blocker
-    if blocked:
-        winner_team = _team_for_player(winner)
-        if blocker is not None and _team_for_player(blocker) == winner_team:
-            rec.next_starter = blocker
-        else:
-            rec.next_starter = _lowest_pip_player(
-                players, [0, 2] if winner_team == 0 else [1, 3]
-            )
-    else:
-        rec.next_starter = winner
+    rec.next_starter = next_starter(winner)
     rec.points_earned = deltas
     rec.final_layout = [(t.a, t.b) for t in layout]
     rec.final_ends = ends
@@ -207,27 +202,33 @@ def run_single_hand(
 
 
 def run_single_match(
-    bots: list[BotBase], config: MatchConfig, match_idx: int
+    bots: list[BotBase],
+    config: MatchConfig,
+    match_idx: int,
+    rng: Optional[random.Random] = None,
 ) -> MatchRecord:
     players = [PlayerState(index=i) for i in range(4)]
     rec = MatchRecord(match_index=match_idx)
     hand_num = 0
     next_start = -1
     while True:
-        hand_rec = run_single_hand(players, bots, config, next_start)
+        hand_rec = run_single_hand(
+            players,
+            bots,
+            config,
+            next_start,
+            rng=rng,
+            opening_hand=(hand_num == 0),
+        )
         rec.hands.append(hand_rec)
         hand_num += 1
-        next_start = (
-            hand_rec.next_starter
-            if hand_rec.next_starter is not None
-            else hand_rec.winner
-        )
+        next_start = hand_rec.next_starter
         t0 = players[0].score
         t1 = players[1].score
         if t0 >= config.target_points or t1 >= config.target_points:
             rec.winner_team = 0 if t0 >= t1 else 1
             break
-        if hand_num >= 100:
+        if hand_num >= MAX_HANDS_PER_MATCH:
             rec.winner_team = 0 if t0 >= t1 else 1
             break
     rec.final_scores = [p.score for p in players]
@@ -235,10 +236,33 @@ def run_single_match(
 
 
 def run_arena(
-    bot_a: BotBase, bot_b: BotBase, num_matches: int = 1000, target_points: int = 200
-) -> dict[str, any]:
+    bot_a: BotBase,
+    bot_b: BotBase,
+    num_matches: int = 1000,
+    target_points: int = 200,
+    seed: Optional[int] = None,
+    swap_seats: bool = False,
+) -> dict:
+    """Bot A on seats 0+2 against Bot B on seats 1+3.
+
+    `swap_seats` puts A on 1+3 instead; running both halves with the same seed
+    cancels the dealing advantage of going first.
+
+    `seed` seeds the global RNG, not just the shuffler, because bots draw from
+    `random` directly -- RandomBot most obviously. Seeding only the deal would
+    leave the run unreproducible.
+    """
     config = MatchConfig(target_points=target_points, mode=GameMode.TEAMS)
-    bots_list = [bot_a, bot_b, bot_a, bot_b]
+    if swap_seats:
+        bots_list = [bot_b, bot_a, bot_b, bot_a]
+        a_team = 1
+    else:
+        bots_list = [bot_a, bot_b, bot_a, bot_b]
+        a_team = 0
+    if seed is not None:
+        random.seed(seed)
+    rng = random
+
     records = []
     team_a_wins = 0
     team_b_wins = 0
@@ -248,15 +272,15 @@ def run_arena(
     blocked_hands = 0
     t0 = time.time()
     for i in range(num_matches):
-        rec = run_single_match(bots_list, config, i)
+        rec = run_single_match(bots_list, config, i, rng=rng)
         records.append(rec)
-        if rec.winner_team == 0:
+        if rec.winner_team == a_team:
             team_a_wins += 1
         else:
             team_b_wins += 1
         total_hands += len(rec.hands)
-        total_points_a += rec.final_scores[0]
-        total_points_b += rec.final_scores[1]
+        total_points_a += rec.final_scores[a_team]
+        total_points_b += rec.final_scores[1 - a_team]
         blocked_hands += sum((1 for h in rec.hands if h.blocked))
     elapsed = time.time() - t0
     return {
