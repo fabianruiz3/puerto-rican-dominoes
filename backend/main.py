@@ -32,13 +32,6 @@ app.add_middleware(
 )
 
 
-def _choose_bot_move(bot, hand, ends, context):
-    try:
-        return bot.choose_move(hand, ends, context)
-    except TypeError:
-        return bot.choose_move(hand, ends)
-
-
 def run_bots(match: MatchState):
     while True:
         hs = match.hand_state
@@ -78,6 +71,36 @@ def list_bots():
     return {"bots": available()}
 
 
+def _active_hand(match, game_id: str):
+    """The hand in progress, or a 400 explaining why there is not one.
+
+    run_bots resolves a finished hand and stops, and if the seat it stops on is
+    the human's, hand_state still says it is their turn. Without this check a
+    play or a pass at that point runs run_bots again, which finds the hand
+    still over and resolves it a second time -- paying the winning team twice
+    for one hand, once per click.
+    """
+    hs = match.hand_state
+    if hs is None:
+        raise HTTPException(status_code=400, detail="No active hand")
+    if match.last_hand_result is not None:
+        raise HTTPException(
+            status_code=400, detail="This hand is over; start the next one"
+        )
+    if match.is_match_over():
+        raise HTTPException(status_code=400, detail="Match is over")
+    if hs.current_player != 0:
+        raise HTTPException(status_code=400, detail="Not human turn")
+    return hs
+
+
+def _choose_bot_move(bot, hand, ends, context):
+    try:
+        return bot.choose_move(hand, ends, context)
+    except TypeError:
+        return bot.choose_move(hand, ends)
+
+
 @app.post("/api/match")
 def start_match(req: StartMatchRequest):
     from bots.registry import seat_bots
@@ -110,11 +133,7 @@ def play_move(game_id: str, req: PlayMoveRequest):
         match = get_match(game_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Match not found")
-    hs = match.hand_state
-    if hs is None:
-        raise HTTPException(status_code=400, detail="No active hand")
-    if hs.current_player != 0:
-        raise HTTPException(status_code=400, detail="Not human turn")
+    hs = _active_hand(match, game_id)
     player = match.players[0]
     if not 0 <= req.tile_index < len(player.hand):
         raise HTTPException(status_code=400, detail="Invalid tile index")
@@ -147,11 +166,7 @@ def pass_turn(game_id: str):
         match = get_match(game_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Match not found")
-    hs = match.hand_state
-    if hs is None:
-        raise HTTPException(status_code=400, detail="No active hand")
-    if hs.current_player != 0:
-        raise HTTPException(status_code=400, detail="Not human turn")
+    _active_hand(match, game_id)
     legal = match.legal_moves(0)
     if legal:
         raise HTTPException(
