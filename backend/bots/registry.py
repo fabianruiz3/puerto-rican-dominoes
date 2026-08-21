@@ -87,6 +87,30 @@ def make(name: str) -> BotBase:
     return _BOTS[name][1]()
 
 
-def seat_bots(name: str, human_seat: Optional[int] = 0) -> list[Optional[BotBase]]:
-    """A four-seat list with `human_seat` left empty for the human."""
-    return [None if i == human_seat else make(name) for i in range(4)]
+PARTNER_SEAT_OF = {0: 2, 1: 3, 2: 0, 3: 1}
+
+
+def seat_bots(
+    opponent: str,
+    partner: Optional[str] = None,
+    human_seat: Optional[int] = 0,
+) -> list[Optional[BotBase]]:
+    """A four-seat list with `human_seat` left empty.
+
+    Seats pair 0+2 against 1+3, so `partner` fills the seat across from the
+    human and `opponent` fills the other two. `partner` defaults to the same
+    bot as the opponents. In FFA there are no teams, and the partner slot is
+    simply the seat opposite.
+    """
+    if partner is None:
+        partner = opponent
+    mate = PARTNER_SEAT_OF[human_seat] if human_seat is not None else None
+    seats: list[Optional[BotBase]] = []
+    for i in range(4):
+        if i == human_seat:
+            seats.append(None)
+        elif i == mate:
+            seats.append(make(partner))
+        else:
+            seats.append(make(opponent))
+    return seats

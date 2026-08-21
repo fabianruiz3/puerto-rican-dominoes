@@ -3,7 +3,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from collections import OrderedDict
-from typing import Literal
+from typing import Literal, Optional
 from dominoes.types import MatchConfig, GameMode
 from dominoes.bots import call_bot, coerce_move
 from dominoes.game import MatchState
@@ -14,6 +14,8 @@ class StartMatchRequest(BaseModel):
     target_points: int = 200
     mode: Literal["ffa", "teams"] = "ffa"
     opponent: Literal["greedy", "random", "cfr", "pimc"] = "greedy"
+    # Defaults to the same bot as the opponents when left unset.
+    partner: Optional[Literal["greedy", "random", "cfr", "pimc"]] = None
 
 
 class PlayMoveRequest(BaseModel):
@@ -101,7 +103,7 @@ def start_match(req: StartMatchRequest):
     mode = GameMode.FFA if req.mode == "ffa" else GameMode.TEAMS
     config = MatchConfig(target_points=req.target_points, mode=mode)
     try:
-        seats = seat_bots(req.opponent)
+        seats = seat_bots(req.opponent, req.partner)
     except FileNotFoundError as e:
         raise HTTPException(status_code=409, detail=str(e))
     match = MatchState.new_with_bots(config, seats)

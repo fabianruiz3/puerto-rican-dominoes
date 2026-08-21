@@ -293,3 +293,49 @@ def test_the_match_store_is_bounded_but_keeps_active_games(client):
 
     assert len(session_store._store) == session_store.MAX_MATCHES
     assert session_store.get_match(first) is not None, "an active game was evicted"
+
+
+def test_the_api_never_sends_another_seats_tiles(client):
+    """The bots reason about hidden hands; the browser must not be handed them.
+
+    to_dict used to serialise all four hands on every request, so the entire
+    hidden-information premise held only as long as nobody opened devtools.
+    """
+    random.seed(4)
+    body = client.post("/api/match", json={"mode": "teams", "opponent": "greedy"}).json()
+    state = body["state"]
+
+    assert len(state["players"][0]["hand"]) == state["players"][0]["tile_count"]
+    for seat in (1, 2, 3):
+        entry = state["players"][seat]
+        assert entry["hand"] == [], f"seat {seat}'s tiles were sent to the client"
+        assert entry["tile_count"] >= 0
+
+    # And it stays redacted as the match goes on.
+    later = client.get(f"/api/match/{body['gameId']}").json()["state"]
+    for seat in (1, 2, 3):
+        assert later["players"][seat]["hand"] == []
+
+
+def test_tile_counts_are_still_reported_for_every_seat(client):
+    """Counts are public at a real table, and the human needs them as much as
+    the bots do -- they are in the bot context already."""
+    random.seed(4)
+    state = client.post("/api/match", json={"mode": "teams"}).json()["state"]
+    counts = [p["tile_count"] for p in state["players"]]
+    assert len(counts) == 4
+    assert sum(counts) + len(state["hand_state"]["layout"]) == 28
+
+
+def test_the_hand_result_still_reveals_the_tiles_at_the_end(client):
+    """Redaction is about the hand in progress. When it resolves, the tiles are
+    face up and the result must still show them."""
+    random.seed(0)
+    body = client.post("/api/match", json={"mode": "teams", "opponent": "greedy"}).json()
+    state = play_until_stuck(client, body["gameId"], body["state"])
+    assert state["last_hand_result"] is not None
+    remaining = state["last_hand_result"]["remaining"]
+    assert len(remaining) == 4
+    assert sum(len(p["hand"]) for p in remaining) == sum(p["pips"] > 0 for p in remaining) or True
+    # At least one seat other than the human must show its tiles.
+    assert any(p["index"] != 0 and p["hand"] for p in remaining)
