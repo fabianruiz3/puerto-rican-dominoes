@@ -37,10 +37,24 @@ def _make_cfr() -> BotBase:
     return CFRBot(_policy_cache)
 
 
+def _make_pimc() -> BotBase:
+    from .pimc_bot import PIMCBot
+
+    return PIMCBot(worlds=PIMC_WORLDS)
+
+
+# How many worlds the determinizing bot samples per turn. Twelve costs a few
+# milliseconds a move and is well past the point of diminishing returns.
+PIMC_WORLDS = 12
+
 _BOTS: dict[str, tuple[str, Callable[[], BotBase]]] = {
     "greedy": ("Heuristic: counts suits, tracks the partner, chases bonuses", GreedyBot),
     "random": ("Plays a random legal move", RandomBot),
     "cfr": ("Trained by self-play with counterfactual regret minimisation", _make_cfr),
+    "pimc": (
+        "Samples the hands it cannot see, solves each, and plays the consensus",
+        _make_pimc,
+    ),
 }
 
 

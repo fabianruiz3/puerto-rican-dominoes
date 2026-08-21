@@ -151,6 +151,51 @@ def oracle_value(sim, team, played, alpha=-10**9, beta=10**9):
     return best
 
 
+def best_response_value(sim, seat, played, alpha=-10**9, beta=10**9):
+    """Best point swing `seat` alone can force, in a fully known position.
+
+    Only `seat` chooses; the other three answer with the heuristic, partner
+    included. This is the per-world search a determinizing player runs -- it
+    never sees a real hand, only a sampled one it invented.
+    """
+    if sim.is_terminal():
+        return sim.utility(seat & 1, CAPICU_BONUS, CHUCHAZO_BONUS)
+
+    actor = sim.cp
+    if actor != seat:
+        move = fast_greedy_move(sim, actor, played)
+        if move is not None:
+            _record(played, actor, move[0], 1)
+        sim.apply(move)
+        value = best_response_value(sim, seat, played, alpha, beta)
+        sim.undo(move)
+        if move is not None:
+            _record(played, actor, move[0], -1)
+        return value
+
+    moves = sim.legal(actor)
+    if not moves:
+        sim.apply(None)
+        value = best_response_value(sim, seat, played, alpha, beta)
+        sim.undo(None)
+        return value
+
+    best = -(10**9)
+    for move in moves:
+        _record(played, actor, move[0], 1)
+        sim.apply(move)
+        value = best_response_value(sim, seat, played, alpha, beta)
+        sim.undo(move)
+        _record(played, actor, move[0], -1)
+        if value > best:
+            best = value
+        if best > alpha:
+            alpha = best
+        if alpha >= beta:
+            break
+    return best
+
+
 def oracle_move(sim, team, played):
     """The oracle's own move at the current node."""
     moves = sim.legal(sim.cp)

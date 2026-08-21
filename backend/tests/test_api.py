@@ -25,7 +25,7 @@ def client():
 
 def test_the_registry_lists_the_seatable_bots(client):
     names = {b["name"] for b in client.get("/api/bots").json()["bots"]}
-    assert names == {"greedy", "random", "cfr"}
+    assert names == {"greedy", "random", "cfr", "pimc"}
 
 
 def test_cfr_is_reported_unready_until_a_policy_is_installed():
@@ -54,7 +54,7 @@ def test_seat_bots_leaves_the_human_seat_empty():
 # ----------------------------------------------------------------- match flow
 
 
-@pytest.mark.parametrize("opponent", ["greedy", "random"])
+@pytest.mark.parametrize("opponent", ["greedy", "random", "pimc"])
 def test_a_match_starts_with_each_available_opponent(client, opponent):
     r = client.post("/api/match", json={"mode": "teams", "opponent": opponent})
     assert r.status_code == 200

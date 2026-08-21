@@ -13,7 +13,7 @@ from session_store import create_match, get_match, save_match
 class StartMatchRequest(BaseModel):
     target_points: int = 200
     mode: Literal["ffa", "teams"] = "ffa"
-    opponent: Literal["greedy", "random", "cfr"] = "greedy"
+    opponent: Literal["greedy", "random", "cfr", "pimc"] = "greedy"
 
 
 class PlayMoveRequest(BaseModel):
