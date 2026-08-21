@@ -1,13 +1,24 @@
-const BASE_URL = "http://localhost:8000";
+// Override with VITE_API_URL when port 8000 is busy:
+//   VITE_API_URL=http://localhost:8010 npm run dev
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-export async function startMatch(targetPoints = 200, mode = "ffa") {
+export async function startMatch(targetPoints = 200, mode = "ffa", opponent = "greedy", partner = null) {
   const res = await fetch(BASE_URL + "/api/match", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target_points: targetPoints, mode })
+    body: JSON.stringify({ target_points: targetPoints, mode, opponent, partner })
   });
-  if (!res.ok) throw new Error("Failed to start match");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to start match" }));
+    throw new Error(err.detail || "Failed to start match");
+  }
   return res.json();
+}
+
+export async function getBots() {
+  const res = await fetch(BASE_URL + "/api/bots");
+  if (!res.ok) throw new Error("Failed to load bots");
+  return (await res.json()).bots;
 }
 
 export async function playMove(gameId, tileIndex, end) {
