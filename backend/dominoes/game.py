@@ -246,7 +246,18 @@ class MatchState:
             or team1_score >= self.config.target_points
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self, viewer: Optional[int] = 0) -> dict:
+        """The match as `viewer` is entitled to see it.
+
+        Only the viewer's own tiles are sent. Every other seat reports a count
+        and nothing else -- the same thing you can see across a real table.
+        Sending the whole deal and trusting the client not to look at it made
+        the entire hidden-information premise a matter of politeness: the hands
+        were one devtools tab away, while the bots played honestly.
+
+        Pass viewer=None to reveal everything, which resolve_hand already does
+        through last_hand_result when the tiles are legitimately face up.
+        """
         hs = self.hand_state
         layout = hs.layout if hs is not None else []
         ends = hs.ends if hs is not None else None
@@ -265,7 +276,12 @@ class MatchState:
                 {
                     "index": p.index,
                     "score": p.score,
-                    "hand": [{"a": t.a, "b": t.b} for t in p.hand],
+                    "tile_count": len(p.hand),
+                    "hand": (
+                        [{"a": t.a, "b": t.b} for t in p.hand]
+                        if viewer is None or p.index == viewer
+                        else []
+                    ),
                 }
                 for p in self.players
             ],

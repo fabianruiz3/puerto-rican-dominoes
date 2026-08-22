@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { startMatch, playMove, passTurn, nextHand, runArena, getArenaResults, getArenaMatch } from "./api";
+import { startMatch, playMove, passTurn, nextHand, runArena, getArenaResults, getArenaMatch, getBots } from "./api";
 
 const C = {
   red: "#ed1c24", blue: "#0054a5", gold: "#e6c54a",
@@ -475,6 +475,10 @@ class MyBot(BotBase):
    ══════════════════════════════════════════════════════════ */
 
 function PlayMode({ onBack }) {
+  const [bots, setBots] = useState([]);
+  const [opponent, setOpponent] = useState("greedy");
+  const [partner, setPartner] = useState("greedy");
+  useEffect(() => { getBots().then(setBots).catch(() => {}); }, []);
   const [gameId, setGameId] = useState(null);
   const [state, setState] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -488,8 +492,11 @@ function PlayMode({ onBack }) {
 
   async function handleStart(pts, mode) {
     setLoading(true);
-    try { const d = await startMatch(pts, mode); setGameId(d.gameId); setState(d.state); }
-    catch { setError("Failed to start game"); }
+    try {
+      const d = await startMatch(pts, mode, opponent, partner);
+      setGameId(d.gameId); setState(d.state);
+    }
+    catch (e) { setError(e.message || "Failed to start game"); }
     finally { setLoading(false); }
   }
   async function handlePlay(ti, end) {
@@ -558,7 +565,41 @@ function PlayMode({ onBack }) {
       <div>
         <button className="new-btn" onClick={onBack} style={{ marginBottom: 16 }}>← Back to Menu</button>
         <div className="start" style={{ minHeight: "auto", paddingTop: 40 }}>
-          <div className="start-label">Select Game Mode</div>
+          <div className="start-label">Choose your table</div>
+
+          <div className="seat-pickers">
+            <div className="seat-pick">
+              <label>Your partner <span className="seat-note">(seat 2)</span></label>
+              <select value={partner} onChange={e => setPartner(e.target.value)}>
+                {bots.map(b => (
+                  <option key={b.name} value={b.name} disabled={!b.ready}>
+                    {b.name}{b.ready ? "" : " (not trained)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="seat-vs">vs</div>
+            <div className="seat-pick">
+              <label>Opponents <span className="seat-note">(seats 1 &amp; 3)</span></label>
+              <select value={opponent} onChange={e => setOpponent(e.target.value)}>
+                {bots.map(b => (
+                  <option key={b.name} value={b.name} disabled={!b.ready}>
+                    {b.name}{b.ready ? "" : " (not trained)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {bots.length > 0 && (
+            <div className="seat-desc">
+              <div><b>{partner}</b> — {bots.find(b => b.name === partner)?.description}</div>
+              {partner !== opponent && (
+                <div><b>{opponent}</b> — {bots.find(b => b.name === opponent)?.description}</div>
+              )}
+            </div>
+          )}
+
+          <div className="start-label" style={{ marginTop: 26 }}>Select game mode</div>
           <div className="start-grid">
             {[[200,"ffa"],[500,"ffa"],[200,"teams"],[500,"teams"]].map(([pts,m])=>(
               <button key={`${pts}-${m}`} className="start-btn" onClick={()=>handleStart(pts,m)}>
@@ -567,6 +608,7 @@ function PlayMode({ onBack }) {
               </button>
             ))}
           </div>
+          {error && <div style={{ color: C.red, marginTop: 14, fontSize: ".85rem" }}>{error}</div>}
         </div>
       </div>
     );
@@ -585,11 +627,22 @@ function PlayMode({ onBack }) {
               </div>
             </div>
             {layout.length > 0 ? <DominoChain layout={layout}/> : <div className="empty-table">{myTurn?"Play the first domino!":"Waiting..."}</div>}
-            {ends && <div className="ends-display">Left: <strong>{ends.left}</strong> · Right: <strong>{ends.right}</strong></div>}
+            {ends && (
+              <div className="ends-display">
+                <span className="ends-lbl">Open ends</span>
+                <span className="end-chip">{ends.left}</span>
+                <span className="end-chip">{ends.right}</span>
+              </div>
+            )}
             <div className="pass-row">
               {handOver && !matchOver && <button className="continue-btn" style={{maxWidth:200}} onClick={handleNextHand} disabled={loading}>Next Hand →</button>}
               {matchOver && <button className="continue-btn" style={{maxWidth:200}} onClick={handleNewGame}>New Game</button>}
-              {!handOver && !matchOver && <button className="pass-btn" disabled={loading||!myTurn||hasLegalMove} onClick={handlePass}>{hasLegalMove ? "Must Play" : "Pass Turn"}</button>}
+              {!handOver && !matchOver && myTurn && !hasLegalMove &&
+                <button className="pass-btn pass-live" disabled={loading} onClick={handlePass}>Pass — nothing to play</button>}
+              {!handOver && !matchOver && myTurn && hasLegalMove &&
+                <span className="turn-hint">Pick a tile to play</span>}
+              {!handOver && !matchOver && !myTurn &&
+                <span className="turn-hint">Player {cp} is thinking…</span>}
             </div>
           </div>
 
@@ -598,9 +651,20 @@ function PlayMode({ onBack }) {
             <div className="panel-title">Hand Result</div>
               <div style={{textAlign:"center",marginBottom:12}}>
                 <div style={{fontSize:"1rem",fontWeight:600}}>
-                  {hr.blocked ? "Blocked!" : hr.winner === 0 ? "You win the hand!" : `Player ${hr.winner} wins`}
+                  {(() => {
+                    const mine = mode === "TEAMS" ? (hr.winner === 0 || hr.winner === 2) : hr.winner === 0;
+                    const who = hr.winner === 0 ? "You" : `Player ${hr.winner}`;
+                    if (mode !== "TEAMS") return hr.blocked ? `Blocked — ${who} had the fewest pips` : `${who} went out`;
+                    const side = mine ? "Your team" : "The opponents";
+                    if (hr.blocked) return `Tranque — ${side} won it on pips`;
+                    return `${side} won the hand (${who} went out)`;
+                  })()}
                 </div>
-                <div className="result-pts">+{hr.points_earned[hr.winner] || 0} points</div>
+                <div className={`result-pts ${(mode === "TEAMS" ? (hr.winner === 0 || hr.winner === 2) : hr.winner === 0) ? "" : "them"}`}>
+                  {(mode === "TEAMS" ? (hr.winner === 0 || hr.winner === 2) : hr.winner === 0) ? "+" : ""}
+                  {hr.points_earned[hr.winner] || 0} points
+                  {(mode === "TEAMS" ? (hr.winner === 0 || hr.winner === 2) : hr.winner === 0) ? "" : " to them"}
+                </div>
               </div>
               <div className="result-section">
                 <div className="result-label">Remaining tiles</div>
@@ -621,7 +685,7 @@ function PlayMode({ onBack }) {
           )}
 
           <div className="hand">
-            <div className="hand-top"><span className="hand-title">Your Hand</span><span className="hand-count">{hand.length} tiles</span></div>
+            <div className="hand-top"><span className="hand-title">Your Hand</span><span className="hand-count">{hand.length} {hand.length === 1 ? "tile" : "tiles"}</span></div>
             <div className="hand-tiles">
               {hand.length > 0 ? hand.map((t,i)=>(
                 <button key={i} className={`hand-btn ${selectedTile===i?"sel":""} ${myTurn?(canPlay(t)?"ok":"no"):""}`}
@@ -639,10 +703,23 @@ function PlayMode({ onBack }) {
             {mode==="TEAMS"?(<>
               <div className="team-row team-a"><div className="team-hdr"><span className="team-name">Your Team</span><span className="team-pts">{t0}</span></div><div className="pbar"><div className="pfill a" style={{width:barW(t0)}}/></div></div>
               <div className="team-row team-b"><div className="team-hdr"><span className="team-name">Opponents</span><span className="team-pts">{t1}</span></div><div className="pbar"><div className="pfill b" style={{width:barW(t1)}}/></div></div>
+              <div className="seats-panel">
+                {state.players.map(p => {
+                  const isYou = p.index === 0;
+                  const isMate = p.index === 2;
+                  const who = isYou ? "You" : isMate ? "Partner" : "Opponent";
+                  const bot = isYou ? null : (isMate ? partner : opponent);
+                  return (
+                    <div key={p.index} className={`seat-row ${cp === p.index && !handOver ? "on" : ""} ${isYou || isMate ? "ours" : "theirs"}`}>
+                      <span className="seat-who">{who}{bot && <span className="seat-bot">{bot}</span>}</span>
+                      <span className="seat-tiles">{p.tile_count}<span className="seat-unit">{p.tile_count === 1 ? "tile" : "tiles"}</span></span>
+                    </div>
+                  );
+                })}
+              </div>
               <div className="ginfo" style={{marginTop:12}}>
-                <div className="ginfo-row"><span className="ginfo-k">Turn</span><span className="ginfo-v">{handOver?"—":cp===0?"You":`P${cp}`}</span></div>
                 <div className="ginfo-row"><span className="ginfo-k">Target</span><span className="ginfo-v">{target} pts</span></div>
-                <div className="ginfo-row"><span className="ginfo-k">On Table</span><span className="ginfo-v">{layout.length}</span></div>
+                <div className="ginfo-row"><span className="ginfo-k">On table</span><span className="ginfo-v">{layout.length} {layout.length === 1 ? "tile" : "tiles"}</span></div>
               </div>
             </>):(<>
               <ul className="plist">
@@ -652,7 +729,7 @@ function PlayMode({ onBack }) {
                       <div className={`pavatar p${p.index}`}>{p.index===0?"":` P${p.index}`}</div>
                       <span className="pname">Player {p.index}{p.index===0&&<span className="ptag">You</span>}</span>
                     </div>
-                    <span className="pscore">{p.score}</span>
+                    <span className="pscore">{p.score}<span className="seat-unit">{p.tile_count} left</span></span>
                   </li>
                 ))}
               </ul>
@@ -683,7 +760,7 @@ function PlayMode({ onBack }) {
       )}
 
       {error&&<div className="toast">{error}</div>}
-      {loading&&<div className="loading"><div className="spinner"/><span>Processing...</span></div>}
+      {loading&&<div className="loading"><div className="spinner"/><span>{cp === 0 ? "Playing your tile…" : `Player ${cp} is playing…`}</span></div>}
     </div>
   );
 }
@@ -702,20 +779,30 @@ body{background:${C.darkBg};min-height:100vh;font-family:'DM Sans',system-ui,san
 .hdr-sub{color:${C.muted};font-size:.9rem;margin-top:2px}
 .flag-bar{display:flex;justify-content:center;gap:3px;margin-top:8px}
 .flag-bar span{width:32px;height:3px;border-radius:2px}
-.mode-select{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px}
-.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:520px;width:100%}
+.mode-select{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding-bottom:14vh}
+.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:620px;width:100%}
 .mode-btn{background:linear-gradient(145deg,${C.felt},${C.feltDark});border:2px solid rgba(255,255,255,.08);border-radius:20px;padding:32px 24px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;transition:all .25s;color:${C.text};font-family:inherit;text-align:center}
 .mode-btn:hover{transform:translateY(-4px);border-color:${C.gold};box-shadow:0 12px 32px rgba(0,0,0,.5)}
 .mode-icon{font-size:2.4rem}
 .mode-title{font-size:1.1rem;font-weight:700}
 .mode-desc{font-size:.8rem;color:${C.muted};line-height:1.4}
-.start{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px}
+.start{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding-bottom:8vh}
 .start-label{color:${C.muted};font-size:1rem;font-weight:500;letter-spacing:1px;text-transform:uppercase}
 .start-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:420px;width:100%}
 .start-btn{background:linear-gradient(145deg,${C.felt},${C.feltDark});border:2px solid rgba(255,255,255,.08);border-radius:16px;padding:20px 16px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;transition:all .25s;color:${C.text};font-family:inherit}
 .start-btn:hover{transform:translateY(-3px);border-color:${C.gold};box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .start-btn .pts{font-size:2rem;font-weight:700;color:${C.gold}}
 .start-btn .lbl{font-size:.8rem;color:${C.muted};text-transform:uppercase;letter-spacing:1px}
+.seat-pickers{display:flex;align-items:flex-end;gap:14px;max-width:420px;width:100%}
+.seat-pick{flex:1;display:flex;flex-direction:column;gap:7px;min-width:0}
+.seat-pick label{font-size:.72rem;color:${C.muted};text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+.seat-note{text-transform:none;letter-spacing:0;opacity:.65;font-weight:400}
+.seat-pick select{width:100%;appearance:none;background:rgba(0,0,0,.35) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0h10L5 6z' fill='%238a9b8f'/></svg>") no-repeat right 12px center;border:1.5px solid ${C.panelBorder};border-radius:10px;padding:10px 30px 10px 12px;color:${C.text};font-family:inherit;font-size:.9rem;cursor:pointer;transition:border-color .2s}
+.seat-pick select:hover{border-color:rgba(230,197,74,.45)}
+.seat-pick select:focus{outline:none;border-color:${C.gold}}
+.seat-vs{color:${C.muted};font-size:.75rem;text-transform:uppercase;letter-spacing:1px;padding-bottom:11px}
+.seat-desc{color:${C.muted};font-size:.76rem;max-width:460px;text-align:center;line-height:1.6;margin-top:-12px;display:flex;flex-direction:column;gap:3px}
+.seat-desc b{color:${C.text};font-weight:600}
 .game{display:grid;grid-template-columns:1fr 280px;gap:20px;flex:1;animation:fadeUp .4s ease}
 @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 .main{display:flex;flex-direction:column;gap:16px;min-width:0}
@@ -728,9 +815,24 @@ body{background:${C.darkBg};min-height:100vh;font-family:'DM Sans',system-ui,san
 .turn-dot.on{background:${C.green}}.turn-dot.off{background:${C.gold}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .empty-table{height:480px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.35);font-size:.95rem;position:relative;z-index:1}
-.ends-display{text-align:center;font-size:.75rem;color:rgba(255,255,255,.35);position:relative;z-index:1;margin-top:4px}
-.ends-display strong{color:${C.gold}}
-.pass-row{display:flex;justify-content:center;margin-top:8px;position:relative;z-index:1}
+.ends-display{display:flex;align-items:center;justify-content:center;gap:10px;position:relative;z-index:1;margin-top:6px}
+.ends-lbl{font-size:.68rem;letter-spacing:1.4px;text-transform:uppercase;color:${C.muted};font-weight:600}
+.end-chip{min-width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;background:rgba(0,0,0,.4);border:1.5px solid rgba(230,197,74,.5);color:${C.gold};font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums}
+.pass-row{display:flex;justify-content:center;align-items:center;min-height:40px;margin-top:10px;position:relative;z-index:1}
+.turn-hint{font-size:.82rem;color:${C.muted};letter-spacing:.3px}
+.pass-btn.pass-live{border-color:rgba(230,197,74,.5);color:${C.gold}}
+
+/* Seats. Tile counts are public at a real table -- the bots get them, so the
+   player gets them too. */
+.seats-panel{margin-top:14px;display:flex;flex-direction:column;gap:2px}
+.seat-row{display:flex;align-items:center;justify-content:space-between;padding:7px 9px;border-radius:8px;border-left:3px solid transparent;transition:background .2s,border-color .2s}
+.seat-row.ours{border-left-color:rgba(74,222,128,.45)}
+.seat-row.theirs{border-left-color:rgba(96,165,250,.45)}
+.seat-row.on{background:rgba(230,197,74,.10);border-left-color:${C.gold}}
+.seat-who{font-size:.82rem;color:${C.text};display:flex;align-items:baseline;gap:6px}
+.seat-bot{font-size:.66rem;text-transform:uppercase;letter-spacing:.8px;color:${C.muted};background:rgba(255,255,255,.06);padding:2px 5px;border-radius:4px}
+.seat-tiles{font-size:.95rem;font-weight:700;color:${C.text};font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:5px}
+.seat-unit{font-size:.62rem;font-weight:500;color:${C.muted};text-transform:uppercase;letter-spacing:.6px}
 .pass-btn{background:rgba(0,0,0,.4);border:1.5px solid rgba(255,255,255,.15);border-radius:10px;padding:8px 28px;color:${C.text};font-family:inherit;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .2s}
 .pass-btn:hover:not(:disabled){background:rgba(237,28,36,.25);border-color:${C.red}}
 .pass-btn:disabled{opacity:.35;cursor:not-allowed}
@@ -787,6 +889,7 @@ body{background:${C.darkBg};min-height:100vh;font-family:'DM Sans',system-ui,san
 .cancel-btn{background:transparent;border:1.5px solid rgba(255,255,255,.15);border-radius:10px;padding:8px 20px;color:${C.muted};font-family:inherit;font-size:.85rem;cursor:pointer;transition:all .2s}
 .cancel-btn:hover{border-color:${C.red};color:${C.red}}
 .result-pts{color:${C.gold};font-size:1.1rem;font-weight:700;margin-bottom:16px}
+.result-pts.them{color:${C.blueAccent}}
 .result-section{text-align:left;margin-bottom:16px}
 .result-label{font-size:.78rem;color:${C.muted};text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
 .result-player{margin-bottom:10px}
