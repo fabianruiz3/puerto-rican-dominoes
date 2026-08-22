@@ -8,9 +8,12 @@ A full-stack Puerto Rican dominoes game with a human-playable UI and a bot arena
 
 ## Features
 
-- Play Puerto Rican dominoes against bots or other players
-- Bot arena: pit bots against each other and watch them play
+- Play Puerto Rican dominoes against four bots of very different strength —
+  pick your partner and your opponents separately
+- Bot arena: pit bots against each other over thousands of matches, with replays
 - Modular bot interface, drop in your own strategy with minimal boilerplate
+- A search bot that beats the hand-tuned heuristic 90% of the time, and the
+  training infrastructure behind the CFR one
 
 ---
 
@@ -127,21 +130,79 @@ most of what separates a strong dominoes player from a greedy one.
 
 ---
 
-## The CFR Bot
+## The bots
 
-`backend/cfr/` trains a bot with external-sampling Monte Carlo CFR, the
+Four opponents ship with the game, selectable from the start screen:
+
+| bot | vs greedy | 95% CI | per move |
+| --- | --- | --- | --- |
+| `random` | — | — | instant |
+| `greedy` | 50% by definition | — | instant |
+| `cfr` | 58.5% | [56.3%, 60.6%] | <1 ms |
+| **`pimc`** | **90.5%** | [87.2%, 93.0%] | ~7 ms |
+
+400–2,000 matches to 200 each, every pairing played twice with the seats
+swapped so the advantage of opening the match cancels. `pimc` also beats `cfr`
+head to head, 76.5% [72.1%, 80.4%].
+
+`pimc` is the strongest and it is not close. The rest of this section is about
+why, since the answer was not the one expected going in.
+
+## The determinizing bot
+
+`backend/bots/pimc_bot.py`. At each turn it takes only what it is entitled to
+know — its own tiles, the board, how many tiles each opponent holds, and the
+numbers each has proven void by passing — invents deals consistent with all of
+it, solves each one exactly, and plays the move that does best averaged over
+them.
+
+Every tile is dealt and nothing is drawn, so once the deal is fixed there is no
+randomness left, only hidden information. That makes each sampled world a
+small deterministic game (~22 moves, branching ~2.5) you can simply solve. It
+is the standard approach for trick-taking games with no draw pile.
+
+It never peeks. The test rearranges the hidden tiles behind an identical public
+record and asserts the chosen move does not change; the sampler is checked
+separately for dealing each unseen tile exactly once, respecting hand sizes,
+and never handing a seat a number it passed on. Across 800 evaluation matches
+every sampled world was fully consistent with the record.
+
+Sampling more worlds keeps paying, with no plateau yet:
+
+| worlds | vs greedy |
+| --- | --- |
+| 6 | 79.5% |
+| 12 | 85.5% |
+| 24 | 90.5% |
+
+Its known weakness is the usual one for determinization: it assumes the
+uncertainty resolves all at once, so it will not play a tile purely to find
+something out. And it models its opponents as playing the heuristic, so a very
+different opponent would blunt it.
+
+### What the ceiling actually is
+
+`backend/cfr/oracle.py` is not a bot and is never seated — it is a measuring
+instrument. It sees all four hands and searches exactly, so nothing that cannot
+see them can beat it. It wins 300 matches out of 300 against `greedy`, with
+greedy against itself at 49.8% as a control.
+
+That is what made the CFR bot's 58.5% worth pushing on: over a match to 200 the
+deal luck averages out almost entirely, so the gap was information and search,
+not variance.
+
+## The CFR bot
+
+`backend/cfr/` trains a policy with external-sampling Monte Carlo CFR, the
 algorithm behind modern poker bots, adapted to a partnership tile game. A
-trained policy ships in the tree, so `cfr` is a selectable opponent on
-checkout.
+trained policy ships in the tree (20 MB), so `cfr` is selectable on checkout.
 
-| matchup | win rate | 95% CI |
-| --- | --- | --- |
-| **cfr vs greedy** | **58.5%** | [56.3%, 60.6%] |
-| cfr vs random | 75.0% | [73.0%, 76.8%] |
-| greedy vs random | 60.7% | [58.5%, 62.8%] |
-
-2,000 matches to 200, each pairing played twice with the seats swapped so the
-advantage of opening the match cancels.
+It beats the heuristic — 58.5% [56.3%, 60.6%] — and loses badly to `pimc`. The
+reason is worth keeping: CFR has to compress 4.7e14 deals into a lookup table,
+so it answers "what is right for positions that look like this" rather than
+"what is right here". PIMC compresses nothing and searches the actual position.
+Across abstraction levels the less the compression the better it played, and
+PIMC is the limit of that trend.
 
 ```bash
 cd backend
