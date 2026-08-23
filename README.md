@@ -142,13 +142,14 @@ Four opponents ship with the game, selectable from the start screen:
 | bot | vs greedy | 95% CI | per move |
 | --- | --- | --- | --- |
 | `random` | — | — | instant |
-| `greedy` | 50% by definition | — | instant |
-| `cfr` | 61.0% | [58.8%, 63.1%] | <1 ms |
-| **`pimc`** | **90.5%** | [87.2%, 93.0%] | ~7 ms |
+| `greedy` | 50.0% (control) | [44.4%, 55.6%] | instant |
+| `cfr` | 60.7% | [58.6%, 62.6%] | <1 ms |
+| **`pimc`** | **87.9%** | [85.2%, 90.1%] | ~7 ms |
 
-400–2,000 matches to 200 each, every pairing played twice with the seats
-swapped so the advantage of opening the match cancels. `pimc` also beats `cfr`
-head to head, 76.5% [72.1%, 80.4%].
+Pooled over independent runs at different seeds — 2,300 matches for `cfr`,
+700 for `pimc` at 24 worlds — every pairing played twice with the seats
+swapped so the advantage of opening the match cancels. `pimc` also beats
+`cfr` head to head, 76.5% [72.1%, 80.4%].
 
 `pimc` is the strongest and it is not close. The rest of this section is about
 why, since the answer was not the one expected going in.
@@ -172,13 +173,18 @@ separately for dealing each unseen tile exactly once, respecting hand sizes,
 and never handing a seat a number it passed on. Across 800 evaluation matches
 every sampled world was fully consistent with the record.
 
-Sampling more worlds keeps paying, with no plateau yet:
+Sampling more worlds helps, though the last doubling is within noise:
 
-| worlds | vs greedy |
-| --- | --- |
-| 6 | 79.5% |
-| 12 | 85.5% |
-| 24 | 90.5% |
+| worlds | vs greedy | 95% CI |
+| --- | --- | --- |
+| 6 | 79.5% | [75.3%, 83.2%] |
+| 12 | 84.6% | [81.7%, 87.1%] |
+| 24 | 87.9% | [85.2%, 90.1%] |
+
+Those last two intervals overlap, so 24 worlds being better than 12 is
+suggestive rather than established. A first measurement of 24 worlds at one
+seed gave 90.5%; a second at another gave 84.3%, which is why the table pools
+runs rather than quoting the best one.
 
 Its known weakness is the usual one for determinization: it assumes the
 uncertainty resolves all at once, so it will not play a tile purely to find
@@ -202,7 +208,7 @@ not variance.
 algorithm behind modern poker bots, adapted to a partnership tile game. A
 trained policy ships in the tree (20 MB), so `cfr` is selectable on checkout.
 
-It beats the heuristic — 61.0% [58.8%, 63.1%] — and loses badly to `pimc`. The
+It beats the heuristic — 60.7% [58.6%, 62.6%] — and loses badly to `pimc`. The
 reason is worth keeping: CFR has to compress 4.7e14 deals into a lookup table,
 so it answers "what is right for positions that look like this" rather than
 "what is right here". PIMC compresses nothing and searches the actual position.
