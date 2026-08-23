@@ -21,13 +21,24 @@ export async function getBots() {
   return (await res.json()).bots;
 }
 
+// The server explains why a move was refused -- "The opening lead must be the
+// 6|6", "This hand is over" -- and throwing a generic string discarded all of
+// it. A 404 additionally means the match is gone, which the caller has to
+// handle rather than leaving the board frozen.
+async function failure(res, fallback) {
+  const body = await res.json().catch(() => ({}));
+  const err = new Error(body.detail || fallback);
+  err.status = res.status;
+  return err;
+}
+
 export async function playMove(gameId, tileIndex, end) {
   const res = await fetch(BASE_URL + "/api/match/" + gameId + "/play", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tile_index: tileIndex, end })
   });
-  if (!res.ok) throw new Error("Failed to play move");
+  if (!res.ok) throw await failure(res, "Could not play that tile");
   return res.json();
 }
 
@@ -36,7 +47,7 @@ export async function passTurn(gameId) {
     method: "POST",
     headers: { "Content-Type": "application/json" }
   });
-  if (!res.ok) throw new Error("Failed to pass");
+  if (!res.ok) throw await failure(res, "Could not pass");
   return res.json();
 }
 
@@ -45,7 +56,7 @@ export async function nextHand(gameId) {
     method: "POST",
     headers: { "Content-Type": "application/json" }
   });
-  if (!res.ok) throw new Error("Failed to start next hand");
+  if (!res.ok) throw await failure(res, "Could not start the next hand");
   return res.json();
 }
 

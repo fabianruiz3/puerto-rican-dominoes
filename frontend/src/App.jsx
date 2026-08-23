@@ -31,7 +31,7 @@ function layoutArm(tiles, sx, sy, startDir, bounds, turnSeq, arm) {
     const adv = dbl ? TH : TW;
 
     let turned = false, dblTriggeredTurn = false;
-    if (i > 0 && tIdx < turnSeq.length) {
+    if (i > 0) {
       let shouldTurn = false, dblTurn = false;
       const p = P[P.length - 1];
       if (dir === "right" && p.x + p.w + GAP + adv > bounds.right) shouldTurn = true;
@@ -40,7 +40,9 @@ function layoutArm(tiles, sx, sy, startDir, bounds, turnSeq, arm) {
       if (dir === "up"    && p.y - GAP - adv < bounds.top) shouldTurn = true;
       if (!horiz && dbl && vc >= 1) { dblTurn = true; shouldTurn = false; }
       if (shouldTurn) {
-        dir = turnSeq[tIdx++]; vc = 0; turned = true;
+        // Cycle the turn sequence rather than running out of turns: a long
+        // chain on a narrow table has to keep folding or it leaves the felt.
+        dir = turnSeq[tIdx++ % turnSeq.length]; vc = 0; turned = true;
         const newH = dir === "right" || dir === "left";
         if (dbl) { w = newH ? TH : TW; h = newH ? TW : TH; }
         else     { w = newH ? TW : TH; h = newH ? TH : TW; }
@@ -360,9 +362,9 @@ class MyBot(BotBase):
                     <span style={{ fontSize: ".85rem" }}>Match #{i + 1}</span>
                     <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
                       <span style={{ fontSize: ".8rem", color: C.muted }}>{m.num_hands ?? m.hands?.length ?? "?"} hands</span>
-                      <span style={{ fontSize: ".8rem", color: C.green }}>{(m.final_scores[0] ?? 0) + (m.final_scores[2] ?? 0)}</span>
+                      <span style={{ fontSize: ".8rem", color: C.green }}>{m.final_scores[0] ?? 0}</span>
                       <span style={{ fontSize: ".7rem", color: C.muted }}>vs</span>
-                      <span style={{ fontSize: ".8rem", color: C.blueAccent }}>{(m.final_scores[1] ?? 0) + (m.final_scores[3] ?? 0)}</span>
+                      <span style={{ fontSize: ".8rem", color: C.blueAccent }}>{m.final_scores[1] ?? 0}</span>
                       <span style={{
                         fontSize: ".7rem", fontWeight: 600, padding: "2px 8px", borderRadius: 4,
                         background: m.winner_team === 0 ? "rgba(74,222,128,.15)" : "rgba(96,165,250,.15)",
@@ -499,22 +501,33 @@ function PlayMode({ onBack }) {
     catch (e) { setError(e.message || "Failed to start game"); }
     finally { setLoading(false); }
   }
+  function reportApiError(e, fallback) {
+    // A 404 means the match is gone -- the server keeps a bounded number and
+    // evicts the oldest. Leaving the board on screen just freezes it.
+    if (e && e.status === 404) {
+      setError("That game is no longer on the server. Starting a new one.");
+      setGameId(null); setState(null); setSelectedTile(null);
+      return;
+    }
+    setError((e && e.message) || fallback);
+  }
+
   async function handlePlay(ti, end) {
     if (!gameId) return; setLoading(true); setSelectedTile(null);
-    try { const d = await playMove(gameId, ti, end); setState(d.state); }
-    catch { setError("Invalid move"); }
+    try { const d = await playMove(gameId, ti, end); setState(d.state); setError(null); }
+    catch (e) { reportApiError(e, "Could not play that tile"); }
     finally { setLoading(false); }
   }
   async function handlePass() {
     if (!gameId) return; setLoading(true);
     try { const d = await passTurn(gameId); setState(d.state); }
-    catch { setError("Failed to pass"); }
+    catch (e) { reportApiError(e, "Could not pass"); }
     finally { setLoading(false); }
   }
   async function handleNextHand() {
     if (!gameId) return; setLoading(true);
     try { const d = await nextHand(gameId); setState(d.state); }
-    catch { setError("Failed to start next hand"); }
+    catch (e) { reportApiError(e, "Could not start the next hand"); }
     finally { setLoading(false); }
   }
   function handleTileClick(idx) {
@@ -870,7 +883,7 @@ body{background:${C.darkBg};min-height:100vh;font-family:'DM Sans',system-ui,san
 .pavatar.p2{background:#22c55e;opacity:.65}.pavatar.p3{background:#3b82f6;opacity:.65}
 .pname{font-weight:500;font-size:.85rem}
 .ptag{font-size:.7rem;color:${C.muted};background:rgba(255,255,255,.06);padding:2px 6px;border-radius:3px;margin-left:4px}
-.pscore{font-weight:700;color:${C.gold};font-size:1rem}
+.pscore{font-weight:700;color:${C.gold;display:flex;align-items:baseline;gap:7px};font-size:1rem}
 .ginfo{display:flex;flex-direction:column;gap:6px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}
 .ginfo-row{display:flex;justify-content:space-between;font-size:.8rem}
 .ginfo-k{color:${C.muted}}.ginfo-v{font-weight:500}
