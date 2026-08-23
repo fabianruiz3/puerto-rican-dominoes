@@ -883,7 +883,7 @@ body{background:${C.darkBg};min-height:100vh;font-family:'DM Sans',system-ui,san
 .pavatar.p2{background:#22c55e;opacity:.65}.pavatar.p3{background:#3b82f6;opacity:.65}
 .pname{font-weight:500;font-size:.85rem}
 .ptag{font-size:.7rem;color:${C.muted};background:rgba(255,255,255,.06);padding:2px 6px;border-radius:3px;margin-left:4px}
-.pscore{font-weight:700;color:${C.gold;display:flex;align-items:baseline;gap:7px};font-size:1rem}
+.pscore{font-weight:700;color:${C.gold};font-size:1rem;display:flex;align-items:baseline;gap:7px}
 .ginfo{display:flex;flex-direction:column;gap:6px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}
 .ginfo-row{display:flex;justify-content:space-between;font-size:.8rem}
 .ginfo-k{color:${C.muted}}.ginfo-v{font-weight:500}
