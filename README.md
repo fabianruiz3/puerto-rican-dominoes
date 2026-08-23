@@ -138,7 +138,7 @@ Four opponents ship with the game, selectable from the start screen:
 | --- | --- | --- | --- |
 | `random` | — | — | instant |
 | `greedy` | 50% by definition | — | instant |
-| `cfr` | 58.5% | [56.3%, 60.6%] | <1 ms |
+| `cfr` | 61.0% | [58.8%, 63.1%] | <1 ms |
 | **`pimc`** | **90.5%** | [87.2%, 93.0%] | ~7 ms |
 
 400–2,000 matches to 200 each, every pairing played twice with the seats
@@ -187,7 +187,7 @@ instrument. It sees all four hands and searches exactly, so nothing that cannot
 see them can beat it. It wins 300 matches out of 300 against `greedy`, with
 greedy against itself at 49.8% as a control.
 
-That is what made the CFR bot's 58.5% worth pushing on: over a match to 200 the
+That is what made the CFR bot's 61% worth pushing on: over a match to 200 the
 deal luck averages out almost entirely, so the gap was information and search,
 not variance.
 
@@ -197,7 +197,7 @@ not variance.
 algorithm behind modern poker bots, adapted to a partnership tile game. A
 trained policy ships in the tree (20 MB), so `cfr` is selectable on checkout.
 
-It beats the heuristic — 58.5% [56.3%, 60.6%] — and loses badly to `pimc`. The
+It beats the heuristic — 61.0% [58.8%, 63.1%] — and loses badly to `pimc`. The
 reason is worth keeping: CFR has to compress 4.7e14 deals into a lookup table,
 so it answers "what is right for positions that look like this" rather than
 "what is right here". PIMC compresses nothing and searches the actual position.

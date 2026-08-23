@@ -106,12 +106,19 @@ def _record(played, seat, tile, delta):
     row[TILE_B[tile]] += delta
 
 
-def oracle_value(sim, team, played, alpha=-10**9, beta=10**9):
+def oracle_value(sim, team, played):
     """Best point swing `team` can force, seeing everything.
 
     The opposing seats answer with the heuristic, so this is the value of a
     perfect-information best response to that opponent -- the most any policy
     could extract from this deal.
+
+    A plain maximum, not alpha-beta. Only one side chooses here; the others
+    follow a fixed policy, so the tree has no minimising nodes and there is
+    nothing for a cutoff to prune against. An earlier version threaded alpha
+    and beta through anyway -- beta was never lowered from its initial value,
+    the cutoff could never fire, and it read as an optimisation that was not
+    there.
     """
     if sim.is_terminal():
         return sim.utility(team, CAPICU_BONUS, CHUCHAZO_BONUS)
@@ -122,7 +129,7 @@ def oracle_value(sim, team, played, alpha=-10**9, beta=10**9):
         if move is not None:
             _record(played, seat, move[0], 1)
         sim.apply(move)
-        value = oracle_value(sim, team, played, alpha, beta)
+        value = oracle_value(sim, team, played)
         sim.undo(move)
         if move is not None:
             _record(played, seat, move[0], -1)
@@ -131,7 +138,7 @@ def oracle_value(sim, team, played, alpha=-10**9, beta=10**9):
     moves = sim.legal(seat)
     if not moves:
         sim.apply(None)
-        value = oracle_value(sim, team, played, alpha, beta)
+        value = oracle_value(sim, team, played)
         sim.undo(None)
         return value
 
@@ -139,24 +146,23 @@ def oracle_value(sim, team, played, alpha=-10**9, beta=10**9):
     for move in moves:
         _record(played, seat, move[0], 1)
         sim.apply(move)
-        value = oracle_value(sim, team, played, alpha, beta)
+        value = oracle_value(sim, team, played)
         sim.undo(move)
         _record(played, seat, move[0], -1)
         if value > best:
             best = value
-        if best > alpha:
-            alpha = best
-        if alpha >= beta:
-            break
     return best
 
 
-def best_response_value(sim, seat, played, alpha=-10**9, beta=10**9):
+def best_response_value(sim, seat, played):
     """Best point swing `seat` alone can force, in a fully known position.
 
     Only `seat` chooses; the other three answer with the heuristic, partner
     included. This is the per-world search a determinizing player runs -- it
     never sees a real hand, only a sampled one it invented.
+
+    A plain maximum: with a single chooser there are no minimising nodes and
+    so nothing to prune against.
     """
     if sim.is_terminal():
         return sim.utility(seat & 1, CAPICU_BONUS, CHUCHAZO_BONUS)
@@ -167,7 +173,7 @@ def best_response_value(sim, seat, played, alpha=-10**9, beta=10**9):
         if move is not None:
             _record(played, actor, move[0], 1)
         sim.apply(move)
-        value = best_response_value(sim, seat, played, alpha, beta)
+        value = best_response_value(sim, seat, played)
         sim.undo(move)
         if move is not None:
             _record(played, actor, move[0], -1)
@@ -176,7 +182,7 @@ def best_response_value(sim, seat, played, alpha=-10**9, beta=10**9):
     moves = sim.legal(actor)
     if not moves:
         sim.apply(None)
-        value = best_response_value(sim, seat, played, alpha, beta)
+        value = best_response_value(sim, seat, played)
         sim.undo(None)
         return value
 
@@ -184,15 +190,11 @@ def best_response_value(sim, seat, played, alpha=-10**9, beta=10**9):
     for move in moves:
         _record(played, actor, move[0], 1)
         sim.apply(move)
-        value = best_response_value(sim, seat, played, alpha, beta)
+        value = best_response_value(sim, seat, played)
         sim.undo(move)
         _record(played, actor, move[0], -1)
         if value > best:
             best = value
-        if best > alpha:
-            alpha = best
-        if alpha >= beta:
-            break
     return best
 
 

@@ -110,11 +110,24 @@ def run_round(
     seed: int,
     open_prob: float,
     clamp: bool,
+    task: int = 0,
 ):
-    """One round across `workers` processes. Returns merged delta arrays."""
+    """One round across `workers` processes. Returns merged delta arrays.
+
+    `task` separates SLURM array tasks. Without it every task seeds identically
+    and samples the same deals in the same order, so N nodes cost N times the
+    allocation and cover nothing extra.
+    """
     per_worker = max(1, iterations // workers)
     jobs = [
-        (seed * 1_000_003 + w, per_worker, level, weight, open_prob, clamp)
+        (
+            (seed * 1_000_003 + task * 7_919 + w) & 0x7FFFFFFF,
+            per_worker,
+            level,
+            weight,
+            open_prob,
+            clamp,
+        )
         for w in range(workers)
     ]
     results = pool.map(_work, jobs) if pool is not None else [_work(j) for j in jobs]
@@ -157,6 +170,21 @@ def save_checkpoint(path: str, checkpoint) -> None:
     save_shard(path, *checkpoint)
 
 
+def _rounds_recorded(checkpoint_path: str) -> int:
+    """Rounds already completed, from the meta written beside the checkpoint.
+
+    Linear averaging weights rounds by their index, so a resumed run has to
+    carry on counting; restarting at 1 would give the later, better-informed
+    rounds the same say as the first ones.
+    """
+    meta_path = os.path.join(os.path.dirname(checkpoint_path), "meta.json")
+    try:
+        with open(meta_path) as fh:
+            return int(json.load(fh).get("rounds_total", 0))
+    except (OSError, ValueError, TypeError):
+        return 0
+
+
 def load_checkpoint(path: str):
     with np.load(path, allow_pickle=False) as data:
         return (
@@ -187,9 +215,15 @@ def train(args) -> None:
     os.makedirs(args.out, exist_ok=True)
     ctx = get_context("fork") if args.workers > 1 else None
     checkpoint = None
+    rounds_done = 0
     if args.resume and os.path.exists(args.resume):
         checkpoint = load_checkpoint(args.resume)
-        print(f"resumed {len(checkpoint[0]):,} slots from {args.resume}", flush=True)
+        rounds_done = _rounds_recorded(args.resume)
+        print(
+            f"resumed {len(checkpoint[0]):,} slots from {args.resume} "
+            f"({rounds_done} rounds already done)",
+            flush=True,
+        )
 
     total_traversals = 0
     started = time.time()
@@ -208,10 +242,13 @@ def train(args) -> None:
                 args.workers,
                 args.iters,
                 args.level,
-                weight=float(rnd + 1),  # linear averaging: later rounds count more
-                seed=args.seed + rnd,
+                # Linear averaging: later rounds count more. Continues across a
+                # resume so resubmitting does not reset the weighting to 1.
+                weight=float(rounds_done + rnd + 1),
+                seed=args.seed + rounds_done + rnd,
                 open_prob=args.open_prob,
                 clamp=not args.no_clamp,
+                task=args.task or 0,
             )
         finally:
             if pool is not None:
@@ -236,6 +273,7 @@ def train(args) -> None:
             save_checkpoint(os.path.join(args.out, "checkpoint.npz"), checkpoint)
 
     if args.task in (None, 0):
+        args._rounds_total = rounds_done + args.rounds
         export(args, checkpoint, total_traversals, time.time() - started)
 
 
@@ -247,7 +285,7 @@ def _sync_round(args, rnd, delta, checkpoint):
     save_shard(shard, delta[0], delta[1], delta[2], delta[3])
     open(shard + ".done", "w").close()
 
-    merged = os.path.join(args.out, f"base{rnd}.npz")
+    merged = os.path.join(args.out, f"run{_run_token(args)}", f"base{rnd}.npz")
     if args.task == 0:
         _wait_for(
             [
@@ -274,6 +312,7 @@ def export(args, checkpoint, traversals, elapsed) -> None:
         "traversals": int(traversals),
         "level": args.level,
         "rounds": args.rounds,
+        "rounds_total": int(getattr(args, "_rounds_total", args.rounds)),
         "open_prob": args.open_prob,
         "elapsed_seconds": round(elapsed, 1),
         "min_mass": args.min_mass,
@@ -307,6 +346,10 @@ def main(argv=None) -> int:
     p.add_argument("--task", type=int, help="SLURM array task id (enables the barrier)")
     p.add_argument("--ntasks", type=int, default=1)
     p.add_argument("--barrier-timeout", type=float, default=3600.0)
+    p.add_argument(
+        "--run-id",
+        help="namespaces the multi-node barrier; defaults to the SLURM job id",
+    )
     args = p.parse_args(argv)
     train(args)
     return 0

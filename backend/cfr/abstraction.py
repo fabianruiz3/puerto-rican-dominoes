@@ -325,6 +325,17 @@ def infoset_key(sim, seat: int, level: str = STANDARD) -> int:
         h = _mix(h, cap(max(0, SLOTS_PER_NUMBER - sim.seen[cl] - slots[cl]), 3))
         h = _mix(h, cap(max(0, SLOTS_PER_NUMBER - sim.seen[cr] - slots[cr]), 3))
 
+    if cl == NO_BOARD:
+        # On an empty board there are no ends to describe the hand against, and
+        # without this every free opening lead collapsed into one information
+        # set -- so the policy learned a single tile ranking and led from it
+        # regardless of what it held. Only opening keys are affected; every
+        # other key is byte-identical to before.
+        longest = sorted(tiles, reverse=True)
+        h = _mix(h, cap(longest[0], 4))
+        h = _mix(h, cap(bin(hand & DOUBLE_MASK).count("1"), 3))
+        h = _mix(h, _pip_bucket(mask_pips(hand)))
+
     if level == STANDARD:
         # Hand shape: the two longest numbers held, doubles, and total weight.
         longest = sorted(tiles, reverse=True)
@@ -367,7 +378,12 @@ def compact_key(sim, seat: int) -> int:
     h = _mix(h, cap(bin(sim.hands[prv]).count("1"), 4))
 
     if sim.left < 0:
-        h = _mix(h, 63)  # opening lead: no ends to describe
+        # Opening lead: no ends, so describe the hand itself or every lead
+        # folds into one information set.
+        h = _mix(h, 63)
+        h = _mix(h, cap(max(tiles), 4))
+        h = _mix(h, cap(bin(hand & DOUBLE_MASK).count("1"), 3))
+        h = _mix(h, _pip_bucket(mask_pips(hand)))
         return h
 
     left, right = sim.left, sim.right
