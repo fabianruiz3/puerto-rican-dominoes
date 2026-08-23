@@ -336,6 +336,11 @@ def test_the_hand_result_still_reveals_the_tiles_at_the_end(client):
     assert state["last_hand_result"] is not None
     remaining = state["last_hand_result"]["remaining"]
     assert len(remaining) == 4
-    assert sum(len(p["hand"]) for p in remaining) == sum(p["pips"] > 0 for p in remaining) or True
+    # Each seat's reported pip total must match the tiles it is showing.
+    for seat in remaining:
+        assert seat["pips"] == sum(t["a"] + t["b"] for t in seat["hand"])
     # At least one seat other than the human must show its tiles.
     assert any(p["index"] != 0 and p["hand"] for p in remaining)
+    # And the whole deal is accounted for once the hand is face up.
+    revealed = sum(len(p["hand"]) for p in remaining)
+    assert revealed + len(state["hand_state"]["layout"]) == 28

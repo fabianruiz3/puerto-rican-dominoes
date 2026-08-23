@@ -165,21 +165,84 @@ def test_the_bot_plays_a_full_arena_match_without_error():
     assert result["team_a_wins"] + result["team_b_wins"] == 15
 
 
-def test_the_bot_plays_the_mode_by_default_and_does_so_deterministically():
-    """Playing the mode measurably beats sampling here (56.4% vs 49.5% against
-    GreedyBot), so it is the default; mixing only pays against an opponent
-    adapting to you."""
-    info = np.array([1, 1], dtype=np.uint64)
-    action = np.array([0, 1], dtype=np.uint8)
-    policy = from_arrays(info, action, np.array([9.0, 1.0]), "tiny")
-    bot = CFRBot(policy)
-    assert bot.sample is False
+def policy_favouring(level, pick_last, seed=9, hands=8):
+    """A policy built on infosets the bot will actually meet.
 
+    Keying a test policy on an arbitrary integer looks like a test of the
+    argmax but is not: no real position hashes to it, every lookup misses, and
+    the bot answers from its GreedyBot fallback throughout. Inverting max to
+    min in cfr_bot then left the whole suite green.
+    """
+    info, action, weight = [], [], []
+    for sim, seat, _, _, _ in replay(hands=hands, seed=seed):
+        ids = actions_for(sim, seat, level)[0]
+        if not ids:
+            continue
+        key = key_for(sim, seat, level)
+        favoured = ids[-1] if pick_last else ids[0]
+        for aid in ids:
+            info.append(key)
+            action.append(aid)
+            weight.append(9.0 if aid == favoured else 1.0)
+    return from_arrays(
+        np.array(info, dtype=np.uint64),
+        np.array(action, dtype=np.uint8),
+        np.array(weight),
+        level,
+    )
+
+
+@pytest.mark.parametrize("level", LEVELS)
+def test_the_bot_plays_the_action_the_table_scores_highest(level):
+    """Weight the last legal action at every infoset, then the first, and the
+    bot's choices must follow. This is what catches max being turned into min.
+    """
+    for pick_last in (True, False):
+        policy = policy_favouring(level, pick_last=pick_last)
+        bot = CFRBot(policy, seed=0)
+        seen = decided = 0
+        for sim, seat, hand, ends, ctx in replay(hands=8, seed=9):
+            ids, groups = actions_for(sim, seat, level)
+            if len(ids) < 2:
+                continue
+            seen += 1
+            entry = policy.lookup(key_for(sim, seat, level))
+            assert entry is not None, f"{level}: policy missed a trained infoset"
+            stored = {int(a): float(p) for a, p in zip(*entry) if int(a) in ids}
+            if not stored:
+                continue
+            best = max(stored.values())
+            # The abstraction merges positions, so a key can carry several
+            # actions at the same weight; any of those is a correct argmax.
+            winners = [a for a, w in stored.items() if w >= best - 1e-9]
+            allowed = [
+                (Domino(*TILES[t]), END_LABEL[e])
+                for a in winners
+                for t, e in groups[ids.index(a)]
+            ]
+            chosen = bot.choose_move(hand, ends, ctx)
+            assert chosen in allowed, (
+                f"{level}: highest-weighted legal actions were {winners}, "
+                f"bot played {chosen}"
+            )
+            decided += 1
+        assert seen >= 10, f"{level}: only {seen} multi-action decisions"
+        assert decided >= 8, f"{level}: only {decided} decisions had stored weights"
+        assert bot.hit_rate > 0.9, f"{level}: hit rate {bot.hit_rate:.2f}"
+
+
+def test_the_bot_plays_the_mode_by_default_and_does_so_deterministically():
+    policy = policy_favouring("tiny", pick_last=True)
+    bot = CFRBot(policy, seed=0)
+    assert bot.sample is False, "the default must be the mode, not a sample"
+    # One bot per run: several concrete moves can share an abstract action id,
+    # and the tie between them is broken with the bot's own RNG, so the state
+    # has to advance the same way in both runs.
+    twin = CFRBot(policy, seed=0)
     first = [bot.choose_move(h, e, c) for _, _, h, e, c in replay(hands=8, seed=9)]
-    again = [
-        CFRBot(policy).choose_move(h, e, c) for _, _, h, e, c in replay(hands=8, seed=9)
-    ]
+    again = [twin.choose_move(h, e, c) for _, _, h, e, c in replay(hands=8, seed=9)]
     assert first == again
+    assert bot.hit_rate > 0.9
 
 
 def test_sampling_can_be_asked_for_explicitly():

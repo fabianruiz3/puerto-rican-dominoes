@@ -122,36 +122,98 @@ def context_for(sim, board, history, seat=0):
     )
 
 
-def test_the_bot_plays_the_same_move_however_the_hidden_tiles_are_arranged():
-    """The decisive property. Redeal the other three hands among themselves --
-    same sizes, same public record -- and the choice must not move."""
-    checked = 0
-    for seed in range(25):
+def test_the_context_handed_to_a_bot_contains_nobody_elses_tiles():
+    """The structural guarantee. A bot receives (hand, ends, context) and
+    nothing else, so the question is whether `context` itself carries hidden
+    tiles. Walk every field and check that the only tiles in it are the ones
+    already face up on the board.
+
+    An earlier version of this file tried to prove the point by redealing the
+    hidden hands and asserting the bot's move did not change. That could never
+    fail: BotContext snapshots the public state when it is built, so both calls
+    received byte-identical arguments and the assertion reduced to "a seeded
+    function is deterministic".
+    """
+    for seed in range(12):
         sim, board, history = position(seed)
+        if sim.is_terminal():
+            continue
+        ctx = context_for(sim, board, history)
+        on_board = {(t.a, t.b) for t in board} | {(t.b, t.a) for t in board}
+        own = {(TILE_A[t], TILE_B[t]) for t in mask_tiles(sim.hands[0])}
+
+        # Every tile mentioned anywhere in the context must be public or ours.
+        for tile in ctx.board:
+            assert (tile.a, tile.b) in on_board
+        for move in ctx.move_history:
+            if move["tile"] is not None:
+                assert move["tile"] in on_board
+        # Hidden hands appear only as counts.
+        assert ctx.hand_counts == [bin(m).count("1") for m in sim.hands]
+        leaked = [
+            (TILE_A[t], TILE_B[t])
+            for seat in (1, 2, 3)
+            for t in mask_tiles(sim.hands[seat])
+        ]
+        blob = repr(ctx)
+        for a, b in leaked:
+            if (a, b) in on_board or (a, b) in own:
+                continue
+            assert f"Domino(a={a}, b={b})" not in blob, f"context leaked {a}|{b}"
+
+
+def test_the_bot_actually_searches_rather_than_deferring_to_the_heuristic():
+    """Kills the mutation that matters: replacing the whole search with the
+    GreedyBot fallback used to leave every test in the suite green, so nothing
+    exercised determinization at all."""
+    greedy = GreedyBot()
+    differs = decisions = 0
+    for seed in range(30):
+        sim, board, history = position(seed, plies=8)
         if sim.is_terminal() or sim.cp != 0:
             continue
         hand = [Domino(TILE_A[t], TILE_B[t]) for t in mask_tiles(sim.hands[0])]
         ends = None if sim.left < 0 else (sim.left, sim.right)
-        ctx = context_for(sim, board, history)
         if len(legal_moves_for_hand(hand, ends)) < 2:
             continue
+        ctx = context_for(sim, board, history)
+        decisions += 1
+        if PIMCBot(worlds=8, seed=3).choose_move(hand, ends, ctx) != greedy.choose_move(
+            hand, ends, ctx
+        ):
+            differs += 1
+    assert decisions >= 8, f"only {decisions} usable positions"
+    assert differs > 0, "the search never once disagreed with the heuristic"
 
-        first = PIMCBot(worlds=6, seed=7).choose_move(hand, ends, ctx)
 
-        # Shuffle the hidden tiles between the other seats. Same context object.
-        rng = random.Random(seed + 100)
-        pool = [t for s in (1, 2, 3) for t in mask_tiles(sim.hands[s])]
-        rng.shuffle(pool)
-        cursor = 0
-        for s in (1, 2, 3):
-            n = bin(sim.hands[s]).count("1")
-            sim.hands[s] = sum(TILE_MASK[t] for t in pool[cursor:cursor + n])
-            cursor += n
+def test_the_bot_changes_its_mind_when_the_pass_record_changes():
+    """It is supposed to reason from what the opponents have shown void in.
+    If the void record is ignored, this cannot happen."""
+    changed = compared = 0
+    for seed in range(30):
+        sim, board, history = position(seed, plies=8)
+        if sim.is_terminal() or sim.cp != 0:
+            continue
+        hand = [Domino(TILE_A[t], TILE_B[t]) for t in mask_tiles(sim.hands[0])]
+        ends = None if sim.left < 0 else (sim.left, sim.right)
+        if sim.left < 0 or len(legal_moves_for_hand(hand, ends)) < 2:
+            continue
+        plain = context_for(sim, board, history)
 
-        again = PIMCBot(worlds=6, seed=7).choose_move(hand, ends, ctx)
-        assert first == again, f"seed {seed}: the choice moved with the hidden tiles"
-        checked += 1
-    assert checked >= 10
+        # Same position, except the seat to our left has passed on both ends.
+        loud = list(history) + [
+            {"player": 1, "tile": None, "end": "pass", "ends": (sim.left, sim.right)}
+        ]
+        informed = context_for(sim, board, loud)
+        assert informed.known_voids[1], "the pass did not register as a void"
+
+        compared += 1
+        if PIMCBot(worlds=8, seed=4).choose_move(hand, ends, plain) != PIMCBot(
+            worlds=8, seed=4
+        ).choose_move(hand, ends, informed):
+            changed += 1
+    assert compared >= 6, f"only {compared} comparable positions"
+    assert changed > 0, "knowing an opponent is void never changed the play"
 
 
 def test_the_bot_only_ever_returns_a_legal_move():

@@ -102,8 +102,14 @@ def from_arrays(info, action, strategy, level, min_mass=0.0, meta=None) -> Polic
     action = np.asarray(action, dtype=np.uint8)
     strategy = np.asarray(strategy, dtype=np.float64)
 
-    order = np.lexsort((action, info))
-    info, action, strategy = info[order], action[order], strategy[order]
+    # Merge repeats first. The training path already sums pairs before it gets
+    # here, but nothing stops another caller passing the same (infoset, action)
+    # twice, and leaving the repeats in splits one action's probability across
+    # several rows -- which a reader taking the largest row then sees as a
+    # weaker action winning.
+    info, action, _, strategy = sum_by_pair(
+        info, action, np.zeros(len(info)), strategy
+    )
 
     uniq, start, counts = np.unique(info, return_index=True, return_counts=True)
     totals = np.add.reduceat(strategy, start) if len(start) else np.zeros(0)
