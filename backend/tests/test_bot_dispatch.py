@@ -85,11 +85,23 @@ def test_a_bot_with_side_effects_runs_exactly_once():
     assert len(plays) == 5
 
 
-def test_the_signature_is_inspected_once_per_class():
-    from dominoes.bots import _ACCEPTS_CONTEXT
+def test_the_signature_is_inspected_once_per_class(monkeypatch):
+    """accepts_context is on the per-move path, so the answer has to be
+    memoised. Asserting the cache is populated does not show it is read --
+    deleting the read left this passing."""
+    import inspect as inspect_module
 
-    _ACCEPTS_CONTEXT.pop(ThreeArg, None)
-    accepts_context(ThreeArg())
-    assert ThreeArg in _ACCEPTS_CONTEXT
-    accepts_context(ThreeArg())  # cached; must not re-inspect or change answer
-    assert _ACCEPTS_CONTEXT[ThreeArg] is True
+    from dominoes import bots as bots_module
+
+    bots_module._ACCEPTS_CONTEXT.pop(ThreeArg, None)
+    calls = []
+    real = inspect_module.signature
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(bots_module.inspect, "signature", counting)
+    for _ in range(5):
+        assert accepts_context(ThreeArg()) is True
+    assert len(calls) == 1, f"signature inspected {len(calls)} times, expected once"

@@ -48,11 +48,20 @@ def test_the_arena_survives_whatever_a_bot_returns(value):
 
 def test_a_bot_that_never_plays_cannot_manufacture_a_tranque():
     """Returning None is a pass, and a pass is only legal with nothing to
-    play. Without that check a bot could refuse to move and block every hand."""
+    play. Without that check a bot could refuse to move and block every hand.
+
+    The blocked rate is compared against two bots that behave, not against a
+    fixed bound: honouring the refusal only lifts it from 0.25 to 0.59, so a
+    threshold anywhere near 0.6 would not have caught the regression it names.
+    """
+    honest = run_arena(GreedyBot(), GreedyBot(), num_matches=20, target_points=200, seed=1)
     refuser = bot_returning(None)
     result = run_arena(refuser, GreedyBot(), num_matches=20, target_points=200, seed=1)
     assert result["bot_a_bad_returns"] > 0
-    assert result["blocked_hand_rate"] < 0.6, "refusing to play still blocked the game"
+    assert result["blocked_hand_rate"] < honest["blocked_hand_rate"] * 1.6, (
+        f"refusing to play drove the blocked rate to {result['blocked_hand_rate']:.3f} "
+        f"against {honest['blocked_hand_rate']:.3f} for bots that play"
+    )
 
 
 def test_well_behaved_bots_are_never_flagged():

@@ -5,13 +5,13 @@ all: install dev
 install: install-backend install-frontend
 
 install-backend:
-	cd backend && pip install -r requirements.txt -q
+	cd backend && python3 -m pip install -r requirements.txt -q
 
 install-frontend:
 	cd frontend && npm install --silent
 
 install-dev:
-	cd backend && pip install -r requirements-dev.txt -q
+	cd backend && python3 -m pip install -r requirements-dev.txt -q
 
 backend:
 	cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000

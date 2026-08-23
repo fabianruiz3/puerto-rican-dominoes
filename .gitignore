@@ -391,3 +391,6 @@ backend/runs/
 backend/cfr/runs/
 *.npz
 !backend/bots/cfr_policy.npz
+
+# Claude Code: the shared launch config is committed, local settings are not.
+.claude/settings.local.json

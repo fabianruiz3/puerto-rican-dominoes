@@ -18,7 +18,7 @@ persistent ControlMaster, so neither command re-authenticates.
 ## Train
 
 ```bash
-ssh engaging 'cd ~/prdom && sbatch cluster/cfr_train.sbatch tiny 200000 24'
+ssh engaging 'cd ~/prdom && sbatch cluster/cfr_train.sbatch coarse 200000 24'
 ```
 
 Arguments are `LEVEL ITERS_PER_ROUND ROUNDS`. Output goes to
@@ -55,12 +55,14 @@ as one array job at equal compute and evaluates each:
 ssh engaging 'cd ~/prdom && sbatch cluster/cfr_sweep.sbatch'
 ```
 
-Results land in `/orcd/pool/007/$USER/prdom/sweep/<level>/eval.txt`.
+Results land in `/orcd/pool/007/$USER/prdom/sweep/<level>/eval.txt`. The sweep
+found `coarse` strongest by a wide margin — coverage ranks the levels backwards,
+see the abstraction notes in the top-level README.
 
 ## Bring the policy home
 
 ```bash
-bash cluster/fetch.sh tiny        # -> backend/bots/cfr_policy.npz
+bash cluster/fetch.sh coarse      # -> backend/bots/cfr_policy.npz
 python3 -m cfr.evaluate --policy backend/bots/cfr_policy.npz --matches 4000
 ```
 

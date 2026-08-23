@@ -31,11 +31,16 @@ Make sure you have the following installed:
 
 ### Option 1: Using Make (Recommended)
 
-From the project root, run both the backend and frontend in one command:
+First run, from the project root — installs dependencies, then starts both
+servers:
 
 ```bash
-make dev
+make all
 ```
+
+After that, `make dev` starts both servers without reinstalling. (`make dev`
+on its own assumes the dependencies are already there; on a fresh clone it
+will fail with "uvicorn: command not found".)
 
 ### Option 2: Manual Setup
 
